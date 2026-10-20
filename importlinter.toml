@@ -1,0 +1,233 @@
+# import-linter 契约：领地隔离与依赖方向的 CI 守卫（架构设计 §3.2）
+# 运行：lint-imports --config importlinter.toml
+[tool.importlinter]
+root_packages = ["lubanagent", "app"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "领地隔离：lubanagent → app 禁止（框架只能经 Registry 拿用户扩展）"
+type = "forbidden"
+source_modules = ["lubanagent"]
+forbidden_modules = ["app"]
+
+[[tool.importlinter.contracts]]
+name = "商业边界：lubanagent → lubanagent_channels 禁止（渠道层单向依赖核心）"
+type = "forbidden"
+source_modules = ["lubanagent"]
+forbidden_modules = ["lubanagent_channels"]
+
+[[tool.importlinter.contracts]]
+name = "lubanagent/app → demos 禁止（示例不反向进入运行态）"
+type = "forbidden"
+source_modules = ["lubanagent", "app"]
+forbidden_modules = ["demos"]
+
+[[tool.importlinter.contracts]]
+name = "分层：core 是最底层（不依赖任何兄弟包与重依赖）"
+type = "forbidden"
+source_modules = ["lubanagent.core"]
+forbidden_modules = [
+    "lubanagent.extension", "lubanagent.config", "lubanagent.persistence",
+    "lubanagent.model", "lubanagent.runtime", "lubanagent.tool", "lubanagent.mcp",
+    "lubanagent.skill", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.graph", "lubanagent.multiagent", "lubanagent.observability",
+    "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "sqlalchemy", "fastapi", "langchain", "langchain_core", "httpx",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：extension 只依赖 core（不依赖上层与重依赖）"
+type = "forbidden"
+source_modules = ["lubanagent.extension"]
+forbidden_modules = [
+    "lubanagent.config", "lubanagent.persistence", "lubanagent.model",
+    "lubanagent.runtime", "lubanagent.tool", "lubanagent.mcp",
+    "lubanagent.skill", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.graph", "lubanagent.multiagent", "lubanagent.observability",
+    "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "sqlalchemy", "fastapi", "langchain", "langchain_core",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：config 只依赖 core（不依赖上层与重依赖）"
+type = "forbidden"
+source_modules = ["lubanagent.config"]
+forbidden_modules = [
+    "lubanagent.extension", "lubanagent.persistence", "lubanagent.model",
+    "lubanagent.runtime", "lubanagent.tool", "lubanagent.mcp",
+    "lubanagent.skill", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.graph", "lubanagent.multiagent", "lubanagent.observability",
+    "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "sqlalchemy", "fastapi", "langchain", "langchain_core",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：persistence 不依赖上层模块与 Web 框架"
+type = "forbidden"
+source_modules = ["lubanagent.persistence"]
+forbidden_modules = [
+    "lubanagent.extension", "lubanagent.model", "lubanagent.runtime",
+    "lubanagent.tool", "lubanagent.mcp", "lubanagent.skill",
+    "lubanagent.knowledge", "lubanagent.memory", "lubanagent.graph",
+    "lubanagent.multiagent", "lubanagent.observability",
+    "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "fastapi", "langchain", "langchain_core",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：model 不依赖 persistence 具体实现与上层（经 Protocol 解耦）"
+type = "forbidden"
+source_modules = ["lubanagent.model"]
+forbidden_modules = [
+    "lubanagent.extension", "lubanagent.config", "lubanagent.persistence",
+    "lubanagent.runtime", "lubanagent.tool", "lubanagent.mcp",
+    "lubanagent.skill", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.graph", "lubanagent.multiagent", "lubanagent.observability",
+    "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "sqlalchemy", "fastapi",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：tool 只依赖 core/extension（治理不收上层）"
+type = "forbidden"
+source_modules = ["lubanagent.tool"]
+forbidden_modules = [
+    "lubanagent.config", "lubanagent.persistence", "lubanagent.model",
+    "lubanagent.runtime", "lubanagent.observability", "lubanagent.mcp",
+    "lubanagent.skill", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.graph", "lubanagent.multiagent",
+    "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "sqlalchemy", "fastapi", "langchain", "langchain_core",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：观测写路径（trace/adapters/cost）自下而上，不依赖 model/runtime"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "lubanagent.observability.trace", "lubanagent.observability.adapters",
+    "lubanagent.observability.cost",
+]
+forbidden_modules = [
+    "lubanagent.model", "lubanagent.runtime", "lubanagent.tool", "lubanagent.mcp",
+    "lubanagent.skill", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.graph", "lubanagent.multiagent",
+    "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "fastapi", "langchain", "langchain_core", "langgraph",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：evals 可消费 runtime/model（治理层读路径），不依赖 api/app/编排"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["lubanagent.observability.evals"]
+forbidden_modules = [
+    "lubanagent.mcp", "lubanagent.skill", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.graph", "lubanagent.multiagent",
+    "lubanagent.api", "lubanagent.app", "lubanagent.cli", "fastapi",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：runtime 不依赖 api/mcp/graph 等（运行时自闭环）"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["lubanagent.runtime"]
+forbidden_modules = [
+    "lubanagent.mcp", "lubanagent.graph", "lubanagent.multiagent",
+    "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "sqlalchemy", "fastapi",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：mcp 只依赖 core/extension/tool（不持业务实现）"
+type = "forbidden"
+source_modules = ["lubanagent.mcp"]
+forbidden_modules = [
+    "lubanagent.config", "lubanagent.persistence", "lubanagent.model",
+    "lubanagent.runtime", "lubanagent.observability",
+    "lubanagent.skill", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.graph", "lubanagent.multiagent",
+    "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "sqlalchemy", "fastapi", "langchain", "langchain_core",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：cli 可消费 evals/runtime/能力件（评测入口），不依赖 api/装配/编排/web"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["lubanagent.cli"]
+forbidden_modules = [
+    "lubanagent.api", "lubanagent.app.factory", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.graph", "lubanagent.multiagent", "fastapi",
+]
+# H09 修订：skill/mcp 从禁止移到允许——评测独立进程需与 API 服务同语义的
+# 能力件装配（Skill 扫描 + MCP 表登记），能力件层不是编排层。
+
+[[tool.importlinter.contracts]]
+name = "分层：knowledge 只依赖 core/extension/persistence（最小 RAG 自闭环）"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["lubanagent.knowledge"]
+forbidden_modules = [
+    "lubanagent.config", "lubanagent.model", "lubanagent.runtime", "lubanagent.tool",
+    "lubanagent.mcp", "lubanagent.skill", "lubanagent.memory", "lubanagent.graph",
+    "lubanagent.multiagent", "lubanagent.observability", "lubanagent.api", "lubanagent.app",
+    "lubanagent.cli", "fastapi",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：memory 只依赖 core/persistence（策略件不绑架运行期）"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["lubanagent.memory"]
+forbidden_modules = [
+    "lubanagent.model", "lubanagent.runtime", "lubanagent.tool", "lubanagent.mcp",
+    "lubanagent.skill", "lubanagent.knowledge", "lubanagent.graph", "lubanagent.multiagent",
+    "lubanagent.observability", "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "fastapi",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：skill 只依赖 core/extension/persistence（运行时沙箱自闭环）"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["lubanagent.skill"]
+forbidden_modules = [
+    "lubanagent.config", "lubanagent.model", "lubanagent.runtime", "lubanagent.tool",
+    "lubanagent.mcp", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.graph", "lubanagent.multiagent", "lubanagent.observability",
+    "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "fastapi", "langchain", "langchain_core",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：graph 可消费 runtime/model/tool（编排层），不依赖 api/app/mcp/能力件"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["lubanagent.graph"]
+forbidden_modules = [
+    "lubanagent.mcp", "lubanagent.skill", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.multiagent", "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "fastapi",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：api 只到 runtime/治理层（不含业务逻辑，不接编排与能力件）"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["lubanagent.api"]
+forbidden_modules = [
+    "lubanagent.mcp", "lubanagent.skill", "lubanagent.knowledge", "lubanagent.memory",
+    "lubanagent.graph", "lubanagent.multiagent", "lubanagent.cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "分层：app 装配根不依赖编排（装配只做接线）"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["lubanagent.app"]
+forbidden_modules = [
+    "lubanagent.graph", "lubanagent.multiagent", "lubanagent.cli",
+]
+# H09 修订：mcp 从禁止移到允许——装配根接线 MCP 登记处（McpRegistry 注入
+# Runtime + lifespan load_from_db/aclose），不实现任何 MCP 业务逻辑。

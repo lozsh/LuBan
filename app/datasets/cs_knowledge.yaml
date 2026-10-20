@@ -1,0 +1,13 @@
+# 纯 RAG 问答 Agent（cs-faq，无工具）的防错答守门评测集。
+# 硬指标：expect_refusal 用例必须短路拒答（事件级判定，不依赖 judge），
+# 未拒答即错答 —— 错答率（report.wrong_answer_rate）目标为 0。
+- case: faq_hit
+  input: 蓝牙耳机防水吗能游泳戴吗
+  expect_output:
+    contains:
+      - IPX5
+      - 不支持游泳
+- case: unknown_refuse
+  input: 你能帮我改一下收货地址吗
+  # 改地址不在知识库覆盖范围 → 检索全 miss → 代码强制短路拒答（knowledge_no_hit）
+  expect_refusal: true

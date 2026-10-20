@@ -1,0 +1,76 @@
+# 上游追踪清单——这些目录/文件上游会主动变更（架构 §4.4）
+# 四节语义：
+#   framework     框架领地，用户原则上不动，合并上游零冲突
+#   shared        共享领地，上下游都会演进，合并时按需处理
+#   scaffold-seed 脚手架种子：首次克隆提供可跑内容，之后上游仅破坏性变更时才动
+#   user-owned    用户领地：上游永不主动触碰（CI 守卫：上游提交 diff 命中即红）
+# glob 支持 * ? ** 与 !(a|b) 段内否定；尾斜杠表目录前缀。
+# user-owned 与 scaffold-seed 重叠时，以 scaffold-seed 为准（种子文件上游可动）。
+
+[framework]
+lubanagent/
+
+[shared]
+demos/
+tests/
+docs/
+docker/
+scripts/
+migrations/
+.github/
+pyproject.toml
+docker-compose.yml
+alembic.ini
+importlinter.toml
+openapi.snapshot.json
+uv.lock
+.dockerignore
+README.md
+AGENTS.md
+CLAUDE.md
+CHANGELOG.md
+SECURITY.md
+CONTRIBUTING.md
+LICENSE
+
+[scaffold-seed]
+# 脚手架种子：首次克隆提供可跑内容，之后上游仅做破坏性变更时才动
+# 包标记 __init__.py 统一种子化（上游新增种子目录时可补）
+app/__init__.py
+app/**/__init__.py
+app/main.py
+app/config/.env.example
+app/agents/customer_service.yaml
+app/agents/cs_faq.yaml
+app/agents/cs_refund.yaml
+app/agents/cs_triage.yaml
+app/tools/customer_service/
+app/graphs/refund_flow.py
+app/multiagents/cs_team.py
+app/skills/refund-sop/
+app/knowledge_sources/product_faq.py
+app/knowledge_sources/product_faq_seed.json
+app/knowledge_sources/project_docs.py
+app/datasets/cs_basic.yaml
+app/config/refund_policy.py
+app/datasets/cs_knowledge.yaml
+app/agents/dept_project.yaml
+app/agents/cs_intake.yaml
+app/agents/cs_notifier.yaml
+app/agents/product_visual.yaml
+app/agents/cs_followup.yaml
+app/api/teams.py
+
+[user-owned]
+# 用户领地：上游不主动触碰（除 scaffold-seed 列出的初始文件）
+# app/config 下用户自建文件全部 user-owned（.env.example 为种子例外，见 scaffold-seed）
+app/agents/!(customer_service|cs_faq|cs_refund|cs_triage).yaml
+app/tools/!(customer_service)/
+app/graphs/!(refund_flow).py
+app/multiagents/!(cs_team).py
+app/skills/!(refund-sop)/
+app/knowledge_sources/!(product_faq).py
+app/datasets/!(cs_basic).yaml
+app/api/!(teams).py
+app/extensions/
+app/config/!(.env.example)

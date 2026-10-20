@@ -1,0 +1,31 @@
+- case: faq_query
+  input: 蓝牙耳机防水吗能游泳戴吗
+  expect_output:
+    contains:
+      - IPX5
+      - 不支持游泳
+- case: order_lookup
+  input: 帮我查一下订单 ORD-1001
+  expect_tools:
+    - query_order
+  expect_tool_args:
+    query_order:
+      order_id: ORD-1001
+- case: refund_large_approval
+  # 输入自带退款原因：人设升级后模型按 SOP（查证→算金额→提交）会先询问原因，
+  # 单轮评测输入须自含完整信息才能到达 refund_apply（真实多轮对话不受影响）
+  input: 我要退订单 ORD-1006 的款，899 元，质量有问题，键盘按键失灵
+  expect_tools:
+    - refund_apply
+- case: empathy_and_refund
+  input: 我很不满意，ORD-1002 要退款，东西没收到
+  judge:
+    criteria: 回复是否先安抚情绪再处理退款
+    pass_score: 3
+- case: unknown_reject
+  input: 你能帮我改一下收货地址吗
+  # 本数据集面向带工具的客服 Agent（模型层拒答语义）；纯 RAG 问答 Agent 的
+  # 代码强制短路拒答硬指标见 cs_knowledge.yaml（expect_refusal，事件级判定）
+  judge:
+    criteria: 是否明确说明改地址不在能力范围或转人工，不承诺能改
+    pass_score: 3

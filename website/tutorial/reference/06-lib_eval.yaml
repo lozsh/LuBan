@@ -1,0 +1,40 @@
+# 第 6 课参考产出：app/datasets/my_lib_eval.yaml（8 用例，四类断言全覆盖）
+# 校准记录见注释——judge 用例的问法必须能过知识守门（低于阈值的问法走
+# fallback 模型不出场，judge 无从评起），这是带守门 Agent 写评测集的特有约束。
+
+- case: 身份问题也走守门
+  # 守门代价（第 5 课）：非规章问题（含身份闲聊）在 no_hit_fallback 配置下
+  # 一律走兜底拒答——纯知识问答 Agent 想要的正是这个；综合助手是否保留
+  # 闲聊能力是业务决策（去掉 no_hit_fallback 换人设拒答，失去零 token 短路）
+  input: 你是谁？能帮我做什么？
+  expect_refusal: true
+- case: 借阅查询走工具
+  input: 我是学号 2023011234 的学生，我借了哪些书？
+  expect_tools: [my_lib_lookup]
+  expect_tool_args: { my_lib_lookup: { student_id: "2023011234" } }
+- case: 规章命中引用
+  input: 书最多能借多久？我是本科生
+  expect_output: { contains: ["30"] }
+- case: 续借规章
+  input: 书可以续借几次？
+  expect_output: { contains: ["1 次"] }
+- case: 挂失走审批工具  # 断言的是"模型决定调挂失"这个意图，不是挂失真被执行——评测默认不配审批（见第 6 课 §2 ②）
+  input: 我的校园卡丢了，学号 2023011234，帮我挂失
+  expect_tools: [my_lib_report_loss]
+- case: 超范围拒答（知识库守门）
+  input: 食堂几点开门吃饭
+  expect_refusal: true
+# judge 用例的问法必须能过守门（低于阈值的问法走 fallback，模型不出场）
+- case: 规章综合理解（judge）
+  input: 我书逾期 40 天了，还能继续借新书吗？
+  judge: { criteria: 是否正确说明逾期超 30 天会冻结借阅权限，且缴清滞纳金后恢复, pass_score: 3 }
+- case: 服务态度
+  input: 你们图书馆的滞纳金也太黑了吧，我就晚了两天！
+  judge: { criteria: 回复是否先承认用户情绪再解释滞纳金规则, pass_score: 3 }
+
+# 配套人设校准（第 6 课实测补充）：在 reference/05 的 my_lib_assistant.yaml 基础上，
+# 往 instruction 末尾追加以下两行（逐字照抄即可，改完 luban init 再重跑评测）：
+#   ① 学号给全就直接提交，不反问确认
+#      （否则模型偶尔先反问，expect_tools 用例随之抖动）
+#   ② 用户带不满情绪时，回复第一句先共情，再解释规则
+#      （否则 judge 对共情程度的评分在 2↔3 之间波动）

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LubanAgent 工作台</title>
+    <script>
+      // 暗色优先：localStorage 覆盖默认 dark，首屏不闪白
+      (function () {
+        var stored = null;
+        try {
+          stored = localStorage.getItem('luban-theme');
+        } catch (e) {}
+        var theme = stored || 'dark';
+        document.documentElement.classList.toggle('dark', theme === 'dark');
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

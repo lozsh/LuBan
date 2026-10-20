@@ -1,0 +1,82 @@
+# ruff: noqa: I001  # 中文含全角标点；evals 须最后导入避免循环依赖
+"""observability：内部 DB 双写（always on）+ 可插拔外部后端适配器（可关闭）。"""
+
+from lubanagent.observability.adapters import (
+    BUILTIN_BACKENDS,
+    LangfuseBackend,
+    LangSmithBackend,
+    NoopBackend,
+    SafeBackend,
+    db_failure_sink,
+    resolve_backend,
+)
+from lubanagent.observability.cost import (
+    CostReport,
+    CostRepository,
+    build_cost_report,
+    cost_advice,
+    cost_for_usage,
+    estimate_cost,
+    estimate_tokens,
+    prices_of,
+)
+from lubanagent.observability.trace import TraceWriter
+
+# evals 最后导入：其内部懒加载 runtime，避免 runtime → observability → evals 循环
+from lubanagent.observability.evals import (
+    REPLAY_MODEL_KEY,
+    AssertionVerdict,
+    CaseResult,
+    ComparisonReport,
+    EvalCase,
+    EvalDataset,
+    EvalReport,
+    EvalRunner,
+    ExpectOutput,
+    JudgeSpec,
+    LlmJudge,
+    check_judge,
+    check_output,
+    check_tool_calls,
+    compare_reports,
+    load_dataset,
+    replay_run,
+    script_from_events,
+)
+
+__all__ = [
+    "BUILTIN_BACKENDS",
+    "REPLAY_MODEL_KEY",
+    "AssertionVerdict",
+    "CaseResult",
+    "ComparisonReport",
+    "CostReport",
+    "CostRepository",
+    "EvalCase",
+    "EvalDataset",
+    "EvalReport",
+    "EvalRunner",
+    "ExpectOutput",
+    "JudgeSpec",
+    "LangSmithBackend",
+    "LangfuseBackend",
+    "LlmJudge",
+    "NoopBackend",
+    "SafeBackend",
+    "TraceWriter",
+    "build_cost_report",
+    "check_judge",
+    "check_output",
+    "check_tool_calls",
+    "compare_reports",
+    "cost_advice",
+    "cost_for_usage",
+    "db_failure_sink",
+    "estimate_cost",
+    "estimate_tokens",
+    "load_dataset",
+    "prices_of",
+    "replay_run",
+    "resolve_backend",
+    "script_from_events",
+]

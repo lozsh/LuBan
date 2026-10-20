@@ -1,0 +1,97 @@
+# LubanAgent 全栈演示：app + MySQL + Langfuse + mock-biz（架构 §6.5 形态）
+# 用法：docker compose up --build
+# 零密钥兜底：Langfuse 未配置 key 时 app 自动降级 noop 观测，不阻断（§6.6 不宣传等价切换）。
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      # 演示端口绑 loopback，不暴露到外部网卡；生产部署用反向代理 + AUTH_ENABLED=true
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: mysql+asyncmy://root:luban@mysql:3306/lubanagent
+      OBSERVABILITY_BACKEND: langfuse
+      LANGFUSE_HOST: http://langfuse:3000
+      # LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY 缺省空 → 降级 noop
+      BIZ_BASE_URL: http://mock-biz:9100
+      # 演示免鉴权以便直接 curl；生产部署设 true 并配 API_KEY（见 app/config/.env.example）
+      AUTH_ENABLED: "false"
+      # 工作台知识库上传文件落盘根目录（挂卷持久化，容器重建不丢）
+      KNOWLEDGE_FILES_ROOT: /data/knowledge
+      # 工作台头像文件落盘根目录（挂卷持久化，容器重建不丢，H08）
+      AVATAR_FILES_ROOT: /data/avatars
+    volumes:
+      - knowledge-data:/data/knowledge
+      - avatars-data:/data/avatars
+    depends_on:
+      mysql:
+        condition: service_healthy
+      langfuse:
+        condition: service_started
+      mock-biz:
+        condition: service_started
+    # 端口探活：uvicorn listening 即 healthy（不依赖鉴权/业务端点；生产建议加专用 /health）
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: luban
+      MYSQL_DATABASE: lubanagent
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-pluban"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  langfuse:
+    image: langfuse/langfuse:2
+    ports:
+      # 调试用 Langfuse 工作台，绑 loopback
+      - "127.0.0.1:3000:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: change-me-in-prod
+      SALT: change-me-in-prod
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+
+  langfuse-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mock-biz:
+    image: python:3.12-slim
+    working_dir: /app
+    # 挂载 demos（可写：退款回写 refunds.json 是 Mock 的设计行为）
+    volumes:
+      - ./demos:/app/demos
+    command: python -m demos.customer_service.mock_services
+    # 不映射宿主端口：仅 app 经容器网络访问 mock-biz（演示不对外暴露 Mock 服务）
+
+volumes:
+  mysql-data:
+  langfuse-data:
+  knowledge-data:
+  avatars-data:

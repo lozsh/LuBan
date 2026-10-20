@@ -1,0 +1,56 @@
+[
+  {
+    "order_id": "ORD-1001",
+    "user_key": "user-001",
+    "status": "shipped",
+    "refundable": true,
+    "amount": 299.00,
+    "product": "无线蓝牙耳机",
+    "created_at": "2026-07-10T08:30:00Z"
+  },
+  {
+    "order_id": "ORD-1002",
+    "user_key": "user-001",
+    "status": "pending_ship",
+    "refundable": true,
+    "amount": 89.50,
+    "product": "手机壳",
+    "created_at": "2026-07-25T14:00:00Z"
+  },
+  {
+    "order_id": "ORD-1003",
+    "user_key": "user-002",
+    "status": "shipped",
+    "refundable": false,
+    "amount": 1299.00,
+    "product": "智能手表",
+    "created_at": "2026-06-15T09:00:00Z"
+  },
+  {
+    "order_id": "ORD-1004",
+    "user_key": "user-002",
+    "status": "delivered",
+    "refundable": true,
+    "amount": 45.00,
+    "product": "数据线",
+    "created_at": "2026-07-01T10:00:00Z"
+  },
+  {
+    "order_id": "ORD-1005",
+    "user_key": "user-003",
+    "status": "cancelled",
+    "refundable": false,
+    "amount": 699.00,
+    "product": "蓝牙音箱",
+    "created_at": "2026-07-20T16:00:00Z"
+  },
+  {
+    "order_id": "ORD-1006",
+    "user_key": "user-003",
+    "status": "shipped",
+    "refundable": true,
+    "amount": 899.00,
+    "product": "机械键盘",
+    "created_at": "2026-07-22T11:00:00Z"
+  }
+]

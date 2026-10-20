@@ -1,0 +1,5 @@
+# 生成产物不格式化（codegen:check 做字节级 diff）
+src/api/schema.d.ts
+public/mockServiceWorker.js
+dist/
+node_modules/

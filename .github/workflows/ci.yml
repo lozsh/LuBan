@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# H14：默认最小权限——全部 job 只需读代码，不授写权限
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # H14：锁定约束下同时验证 3.11（下限）与主要开发版本
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # H14：uv.lock 冻结安装（--frozen：锁与 pyproject 不同步即失败，不隐式重解析）
+      - name: 安装依赖（uv.lock 冻结）
+        run: uv sync --frozen --extra dev
+      - name: ruff
+        run: uv run --no-sync ruff check lubanagent tests migrations app demos scripts
+      - name: import-linter（领地依赖方向）
+        run: uv run --no-sync lint-imports --config importlinter.toml
+      - name: alembic 三向迁移（SQLite 冒烟）
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///${{ github.workspace }}/.ci-migrate.db
+        run: |
+          uv run --no-sync alembic upgrade head
+          uv run --no-sync alembic downgrade base
+          uv run --no-sync alembic upgrade head
+          rm -f .ci-migrate.db
+      - name: pytest + 覆盖率门槛
+        run: |
+          uv run --no-sync pytest --cov=lubanagent --cov-report=json --cov-report=term-missing --cov-fail-under=70
+          uv run --no-sync python scripts/check_coverage.py
+      - name: OpenAPI 快照契约（比较不写文件；漂移即失败）
+        run: uv run --no-sync pytest tests/lubanagent/api/test_openapi_snapshot.py
+      - name: luban CLI 冒烟
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///${{ github.workspace }}/.ci-cli.db
+        run: |
+          uv run --no-sync luban --help
+          uv run --no-sync luban migrate
+          uv run --no-sync luban init
+          uv run --no-sync luban eval run --help
+          rm -f .ci-cli.db
+
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: luban
+          MYSQL_DATABASE: lubanagent
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pluban"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: 安装依赖（uv.lock 冻结，含 mysql extra）
+        run: uv sync --frozen --extra dev --extra mysql
+      - name: alembic MySQL 实跑（D1-1 验收）
+        env:
+          DATABASE_URL: mysql+asyncmy://root:luban@127.0.0.1:3306/lubanagent
+        run: |
+          uv run --no-sync alembic upgrade head
+          uv run --no-sync alembic downgrade base
+          uv run --no-sync alembic upgrade head
+
+  # H14：依赖安全扫描（按实际锁定版本审计公告）
+  # Python：全 extras 冻结安装后审计 site-packages；发现已知漏洞即失败（当前清零）。
+  security-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: 冻结安装（全 extras，审计对象 = 锁定版本）
+        run: uv sync --frozen --extra dev --extra mysql --extra langfuse --extra docs
+      - name: pip-audit（锁定版本审计）
+        run: |
+          uvx pip-audit --path .venv/lib/python3.12/site-packages --desc off 2>&1 | tee pip-audit-report.txt
+          # 自身包不在 PyPI 属预期 skip；其余条目即漏洞命中，退出码由 grep 兜底
+          ! grep -E '^\S+\s+\S+\s+(PYSEC-|CVE-|GHSA-)' pip-audit-report.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pip-audit-report
+          path: pip-audit-report.txt
+
+  security-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: lubanagent/ui/package-lock.json
+      - name: 安装依赖（package-lock 冻结）
+        run: npm ci
+        working-directory: lubanagent/ui
+      # 全量报告存档（不阻断）；已知未消除命中与理由见 docs/security/dependency-advisories.md
+      - name: npm audit 全量报告（存档）
+        run: npm audit --json > npm-audit-report.json || true
+        working-directory: lubanagent/ui
+      # 门槛：生产依赖（--omit=dev）不允许 critical；构建期工具链命中按公告复核
+      - name: npm audit 门槛（生产依赖无 critical）
+        run: npm audit --omit=dev --audit-level=critical
+        working-directory: lubanagent/ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: npm-audit-report
+          path: lubanagent/ui/npm-audit-report.json
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: lubanagent/ui/package-lock.json
+      - name: 安装依赖（package-lock 冻结）
+        run: npm ci
+        working-directory: lubanagent/ui
+      - name: OpenAPI 契约一致性
+        run: npm run codegen:check
+        working-directory: lubanagent/ui
+      - name: 前端四件套
+        run: npm run typecheck && npm run lint && npm run test && npm run build
+        working-directory: lubanagent/ui
+
+  # H14：镜像可构建（不推送）；构建成功仅证明 Dockerfile 有效，不宣称全栈已通过
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker 镜像构建（三阶段）
+        run: docker build -f docker/Dockerfile -t lubanagent:ci .
+
+  upstream-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: .lubanagent-upstream 守卫（上游提交不触碰用户领地）
+        env:
+          GUARD_BASE: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
+        run: python3 scripts/check_upstream_guard.py --base "$GUARD_BASE"

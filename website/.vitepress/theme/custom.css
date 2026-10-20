@@ -1,0 +1,228 @@
+/**
+ * LubanAgent 文档站品牌样式
+ * 定制惯例参考高星 VitePress 项目（Vite / Vitest / Element Plus）：
+ * 1) 品牌色统一走 --vp-c-brand-* 变量  2) 正文加大字号、放宽行高（中文阅读友好）
+ * 3) hero 渐变标题  4) 特性卡片圆角 + 悬浮反馈  5) 代码块圆角
+ */
+
+:root {
+  /* 品牌色：靛蓝 → 青绿的"匠造"渐变基调 */
+  --vp-c-brand-1: #5b5ef4;
+  --vp-c-brand-2: #767af8;
+  --vp-c-brand-3: #8b8efa;
+  --vp-c-brand-soft: rgba(91, 94, 244, 0.14);
+
+  --vp-font-family-base:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+
+  /* 加宽内容区（默认约 688px，中文长段落太窄） */
+  --vp-layout-max-width: 1400px;
+
+  /* hero 渐变标题（参考 Vite 官网） */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #5b5ef4 30%, #42d392);
+
+  /* hero 背景光晕 */
+  --vp-home-hero-background-color: rgba(91, 94, 244, 0.08);
+}
+
+.dark:root {
+  --vp-c-brand-soft: rgba(118, 122, 248, 0.18);
+  --vp-home-hero-background-color: rgba(118, 122, 248, 0.12);
+}
+
+/* ---------- 正文排版：字号 + 行高（中文友好） ---------- */
+
+/* 正文列宽放宽：默认主题硬编码 688px，中文长段落太局促 */
+.VPDoc.has-aside .content-container {
+  max-width: 880px;
+}
+
+.vp-doc {
+  font-size: 17px;
+  line-height: 1.8;
+}
+
+.vp-doc h1 {
+  font-size: 34px;
+  letter-spacing: -0.02em;
+}
+
+.vp-doc h2 {
+  padding-top: 32px;
+  border-top: none;
+}
+
+.vp-doc p,
+.vp-doc li {
+  word-break: break-word;
+}
+
+/* 导航与侧栏略放大，配合正文 */
+.VPNavBar .title {
+  font-size: 18px !important;
+  font-weight: 700;
+}
+
+.VPSidebarItem.level-1 .text,
+.VPNavBarMenuLink {
+  font-size: 15px;
+}
+
+/* ---------- 首页 ---------- */
+
+.VPHero .tagline {
+  font-size: 20px;
+  line-height: 1.7;
+  max-width: 640px;
+}
+
+.VPButton.brand {
+  font-size: 17px;
+  padding: 0 24px;
+  border-radius: 12px;
+}
+
+.VPButton.alt {
+  border-radius: 12px;
+}
+
+/* 特性卡片：圆角 + 悬浮上浮（Element Plus 文档同款手感） */
+.VPFeature {
+  border-radius: 14px;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.VPFeature:hover {
+  transform: translateY(-3px);
+  border-color: var(--vp-c-brand-2);
+  box-shadow: 0 12px 28px rgba(91, 94, 244, 0.12);
+}
+
+.VPFeature .title {
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.VPFeature .details {
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+/* ---------- 代码块 ---------- */
+
+.vp-doc div[class*='language-'] {
+  border-radius: 10px;
+}
+
+/* ---------- 代码块：macOS 窗口风格 + 长代码自动折叠 ---------- */
+
+/* macOS 红绿灯（社区经典做法：::before 画第一个圆点，box-shadow 复制出另外两个） */
+.vp-doc div[class*='language-']::before {
+  content: '';
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 3;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow:
+    18px 0 0 #febc2e,
+    36px 0 0 #28c840;
+  opacity: 0.92;
+}
+
+/* code-group 自带 tab 栏，不再叠加红绿灯 */
+.vp-doc .vp-code-group div[class*='language-']::before {
+  display: none;
+}
+
+/* 给红绿灯留出标题栏空间 */
+.vp-doc div[class*='language-'] pre {
+  padding-top: 44px;
+}
+
+/* 语言标签与复制按钮对齐到"标题栏"一行 */
+.vp-doc div[class*='language-'] > span.lang {
+  top: 15px;
+  right: 14px;
+}
+
+.vp-doc div[class*='language-'] > button.copy {
+  top: 10px;
+}
+
+/* 折叠：不能用 display:none——Shiki 每行 span 之间还有 \n 文本节点，
+ * 隐藏 span 后换行符仍在，pre 高度不变。改用 max-height 裁切：
+ * 44px 标题栏 + 16 行 × 1.7 行高（VitePress 默认 --vp-code-line-height） */
+.vp-doc div[class*='language-'].is-collapsed pre {
+  max-height: calc(44px + 16 * 1.7em);
+  overflow: hidden;
+}
+
+/* 折叠切口底部渐隐，暗示下方还有内容 */
+.vp-doc div[class*='language-'].is-collapsed pre code {
+  display: block;
+  position: relative;
+}
+
+.vp-doc div[class*='language-'].is-collapsed pre code::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3.4em;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--vp-code-block-bg));
+}
+
+/* 折叠/展开按钮：代码块底部通栏 */
+.vp-doc div[class*='language-'] button.code-collapse-toggle {
+  display: block;
+  width: 100%;
+  padding: 9px 0;
+  border: none;
+  border-top: 1px dashed var(--vp-c-divider);
+  border-radius: 0 0 10px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--vp-c-text-2);
+  background: var(--vp-c-bg-soft);
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    background-color 0.2s;
+}
+
+.vp-doc div[class*='language-'] button.code-collapse-toggle:hover {
+  color: var(--vp-c-brand-1);
+  background: var(--vp-c-brand-soft);
+}
+
+/* ---------- 表格（GitHub 文档同款方案，全站所有表格生效） ----------
+ * 问题：table 默认 auto 布局 + width:100%，当总内容超出容器时浏览器会
+ * 把短列挤到一字一行竖排。改成 display:block + overflow-x:auto 后：
+ * 窄表格正常铺开，宽表格整体横向滚动，任何列都不会被压扁。 */
+.vp-doc table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+}
+
+/* 表头禁止换行：短表头列（耗时 / 难度）保持可读宽度 */
+.vp-doc th {
+  white-space: nowrap;
+}
+
+/* 首列（课次 / 分组名 / 导航词）禁止断行 */
+.vp-doc td:first-child {
+  white-space: nowrap;
+}

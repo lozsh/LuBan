@@ -1,0 +1,64 @@
+# LubanAgent Docker 构建上下文裁剪
+# Dockerfile 在 docker/ 子目录，但 build context 是仓库根（见 docker-compose.yml），
+# 故 .dockerignore 必须放仓库根才生效。
+
+# Git
+/.git/
+/.gitignore
+
+# Python 环境/缓存
+/.venv/
+/venv/
+/env/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+/.pytest_cache/
+/.ruff_cache/
+/.import_linter_cache/
+
+# 前端（UI 在镜像内 ui-builder 阶段从源码构建；本地 node_modules/产物不进镜像）
+/node_modules/
+lubanagent/ui/node_modules/
+lubanagent/ui/dist/
+lubanagent/ui/.vite/
+
+# 测试/覆盖率产物（镜像不带测试）
+/.coverage
+/coverage.json
+/htmlcov/
+/.playwright-mcp/
+
+# 本地数据库文件
+*.sqlite
+*.sqlite3
+*.db
+
+# 环境变量与私钥：递归排除任意层级；只放行 app/config/.env.example 样本（scaffold-seed 要进镜像）
+/.env
+/.env.*
+**/.env
+**/.env.*
+!app/config/.env.example
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/id_rsa*
+**/id_ed25519*
+
+# 运行数据/调试产物（不上镜像）
+/data/
+demos/customer_service/data/
+/.study/
+
+# spec-coding 单次任务过程文件（契约已沉淀至 docs/specs/contracts/，随 docs 一并处理）
+/.spec-coding/
+
+# 文档/CI/IDE（镜像不需要）
+/docs/
+/tests/
+/.github/
+/.idea/
+/.vscode/
+.DS_Store

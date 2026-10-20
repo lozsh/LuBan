@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Node / 前端
+node_modules/
+lubanagent/ui/dist/
+
+# 环境与密钥
+.env
+.env.*
+!.env.example
+*.key
+
+# 数据库与本地数据
+*.sqlite
+*.sqlite3
+*.db
+data/local/
+# 运行时上传文件（知识库 data/knowledge/、虚拟形象 data/avatars/）不进 git
+data/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+
+# 测试与覆盖率
+.pytest_cache/
+.ruff_cache/
+.import_linter_cache/
+.playwright-mcp/
+.coverage
+htmlcov/
+coverage.json
+
+# spec-coding 单次任务过程文件（非规格资产，统一收敛于此目录；开发单元契约入库于 docs/contracts/，长期资产在 docs/specs/，均不忽略）
+.spec-coding/
+
+# Alembic 本地产物
+migrations/versions/__pycache__/
+.study/
+chat-3d-avatar.png
