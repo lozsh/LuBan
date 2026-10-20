@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 使用文档
+    url: https://lozsh.github.io/LuBan/
+    about: 教程与使用手册——大多数"怎么用"的问题文档里已有答案
+  - name: 💬 讨论交流
+    url: https://github.com/lozsh/LuBan/discussions
+    about: 使用心得、架构探讨、想法碰撞，欢迎来 Discussions
