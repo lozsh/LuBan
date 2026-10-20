@@ -173,7 +173,7 @@ demos/ tests/ docs/ migrations/   共享领地
 
 ## 技术栈
 
-- **语言/框架**：Python ≥3.11 + LangChain + LangGraph（硬约束的地基）
+- **语言/框架**：Python ≥3.11 + LangChain（core 1.6）+ LangGraph 1.2（硬约束的地基；后端 FastAPI 0.143 / SQLAlchemy 2.1 / Pydantic 2.14，精确版本由 `uv.lock` 冻结）
 - **模型接入**：OpenAI 兼容协议优先（DeepSeek / Qwen / GLM / vLLM / Ollama 一个客户端全覆盖）
 - **数据库**：MySQL 8.0+（生产）/ SQLite（开发期免安装）；ORM + Alembic 迁移
 - **观测**：可插拔 `ObservabilityBackend`，默认 Langfuse 自部署，可选 LangSmith / none
