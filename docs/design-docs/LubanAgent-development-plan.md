@@ -52,6 +52,7 @@
 | D1-10 | Prompt 库一等实体化（core/prompt + prompts 表 + /v1/prompts + 工作台 Prompt 库页） | 框架 | F1/F10 | D1-1、D1-3 | 与 D1-9 并行（已完成） |
 | D2-1 | `lubanagent/observability/evals` 评测体系 | 框架 | F6 | D1-4、D1-7 | 与 D2-2 并行 |
 | D2-2 | `lubanagent/observability/cost` 成本治理 | 框架 | F7 | D1-4、D1-7 | 与 D2-1 并行 |
+| D2-3 | `lubanagent/tool/builtin` 随包内置通用工具集 | 框架 | F4 | D1-5 | 与 D3 阶段并行 |
 | D3-1 | `lubanagent/knowledge` 最小 RAG | 框架 | F9 | D0-1、D1-4 | 与 D3-2/3/4 并行 |
 | D3-2 | `lubanagent/memory` 记忆策略 | 框架 | F9 | D0-1、D1-4 | 与 D3-1/3/4 并行 |
 | D3-3 | `lubanagent/skill` Skill 运行时 | 框架 | F12 | D0-1、D1-4 | 与 D3-1/2/4 并行 |
@@ -227,11 +228,11 @@ flowchart LR
 - **依赖**：D1-1（仓储）；`luban eval` 子命令额外依赖 D2-1（evals）。
 - **可并行**：与阶段 1 后期并行。
 
-#### D1-9 CI 与测试基建（横切）
+#### D1-9 CI 与测试基建（横切，已完成）
 
-- **开发内容**：`.github/workflows/ci.yml`（或 Gitee 等价 CI）：① `import-linter` 守卫全部依赖方向（`lubanagent→app` 禁止、`lubanagent→lubanagent-channels` 禁止、`app→demos` 禁止、子包分层规则）；② `pytest` 全量 + 覆盖率门槛（核心模块 ≥85%，整体 ≥70%）；③ `alembic upgrade head` 在 SQLite 冒烟；④ 前端 `npm ci && npm run build` + 类型检查；⑤ `.lubanagent-upstream` 校验脚本（上游 PR diff 不触碰 `user-owned` glob）。配套 `importlinter.toml`、`pytest` 配置、前端测试基建。
+- **开发内容**：`.github/workflows/ci.yml`（或 Gitee 等价 CI）：① `import-linter` 守卫全部依赖方向（`lubanagent→app` 禁止、`lubanagent→lubanagent-channels` 禁止、`app→demos` 禁止、子包分层规则）；② `pytest` 全量 + 覆盖率门槛（核心模块 ≥85%，整体 ≥70%）；③ `alembic upgrade head` 在 SQLite 冒烟；④ 前端 `npm ci && npm run build` + 类型检查；⑤ `.lubanagent-upstream` 校验脚本（上游 PR diff 不触碰 `user-owned` glob）；⑥ 冷启动端到端冒烟（零密钥：克隆 → `luban init` → 起服务 → SSE 对话客服 Agent，守住"克隆到第一个 Agent"体感不被 PR 悄悄破坏，对应 PRD §8 冷启动硬指标）。配套 `importlinter.toml`、`pytest` 配置、前端测试基建。
 - **关键架构**：CI 是领地隔离与依赖方向的最终守卫——架构设计 §3.2 的规则不靠口头约定，全部写进 `importlinter.toml` 由 CI 强制。测试基建以 D1-2 的 FakeLLM 为底座，让全仓库测试免真实模型/免真实渠道跑通。
-- **验收标准**：CI 在零外部密钥环境下全绿（FakeLLM + SQLite + noop 观测 + mock 渠道兜底）；故意写一条 `lubanagent → app` 的 import，CI 立即红；覆盖率门槛生效。
+- **验收标准**：CI 在零外部密钥环境下全绿（FakeLLM + SQLite + noop 观测 + mock 渠道兜底）；故意写一条 `lubanagent → app` 的 import，CI 立即红；覆盖率门槛生效；冷启动冒烟用例在 CI 全绿。
 - **依赖**：D0-2（import-linter 规则依赖 extension 契约）、D1-2（FakeLLM）。
 - **可并行**：import-linter 配置可在 D0-2 后即起；CI workflow 在各单元就绪后逐步补检查项。
 
@@ -260,6 +261,14 @@ flowchart LR
 - **验收标准**：Run 前能给出 Token 估算；撞预算熔断写 Trace；费用报表能按 Agent 聚合。
 - **依赖**：D1-4、D1-7。
 - **可并行**：与 D2-1 并行。
+
+#### D2-3 `lubanagent/tool/builtin` 随包内置通用工具集（F4 扩展）
+
+- **开发内容**：first-party 高频通用 Tool 随核心发布：HTTP 请求、SQL 查询（只读白名单）、网页抓取、文件读写（沙箱内）、时间/计算等基础件；统一走 D1-5 的注册/权限/审批治理，默认关闭、Agent 定义按需启用。
+- **关键架构**：这是"随包电池"而非插件商城（PRD §10 决策 14）——工具随核心一起测试、一起发版，解决基座冷启动期"底座很硬但接个外部系统还得自己写代码"的开箱体感差距；实现收敛在 `lubanagent/tool/builtin/` 独立子包，用户领地可整体忽略或覆盖。
+- **验收标准**：不写任何代码，Agent 定义 `tools:[http_request, sql_query]` 即可用；每个内置 Tool 有独立单测与权限/超时治理用例；CI 覆盖率门槛不因新增子包放宽。
+- **依赖**：D1-5。
+- **可并行**：与 D3 阶段各单元并行。
 
 ### 阶段 3：上层编排与扩展能力
 
@@ -411,6 +420,7 @@ curl -N -X POST http://localhost:8000/v1/agents/customer-service-bot/runs -H "Co
 **端到端验收清单**（对应 PRD §6.1 验收基线）：
 
 - [ ] 克隆 + 配模型 30 分钟内跑通客服示例；
+- [ ] 零密钥冷启动体感（克隆 → 起 mock → FakeLLM 对话）由 CI 端到端守卫，破坏即红；
 - [ ] 改 Agent 定义/Prompt/逻辑大脑/Tool 构建新 Agent，不改 Runtime 代码；
 - [ ] 接入新模型只加 Model Definition + 工厂代码，不改业务代码；
 - [ ] 退款流水线（图编排）跑通，大额人工审批暂停/恢复；
@@ -432,3 +442,40 @@ curl -N -X POST http://localhost:8000/v1/agents/customer-service-bot/runs -H "Co
 - **技术提案 §14 实现顺序（三步 + 渠道层）** → 阶段 1/2/3 对应三步，阶段 6 为渠道层（核心稳定后），阶段 4 前端与阶段 5 示例按契约先行/纵切穿插并行。
 - **架构 §6 观测适配器（双写、内部 DB source of truth、缺省 langfuse 非 none）** → D1-7 验收标准对齐（`=none` 可用、`=langfuse` 见 UI、七问由内部 DB 保证）。
 - **架构 §7.5 Tool 与 Mock 连接方式（Tool 不 import demos，走 BIZ_BASE_URL HTTP）** → D5-1 关键架构明确落地，既保依赖方向又演示接真实业务。
+- **PRD §2.1/§9/§10 决策 14 目标人群切入点与冷启动策略（Dify 毕业生、独立服务部署口径、随包电池）** → D2-3 内置通用工具集 + D1-9 冷启动 CI 守卫 + D5-1 客服纵切对应落地；RAG/存储零外部依赖为 D3-1 既成决策（向量存 DB JSON + Python cosine）。
+
+---
+
+## 7. 发布冲刺待办（2026-10-22 起）
+
+代码侧（阶段 0-5 + 批次 I/D1-9 六项）已全部完成，剩余工作按三段推进：
+
+### 7.1 发布前收尾（本周级）
+
+- [ ] GitHub Actions 全量跑绿：本地无法验证 Actions 环境，全部 job（backend / mysql / security-python / security-frontend / frontend / docker-build / upstream-guard / cold-start）在真实 CI 各跑一次确认；
+- [ ] 工作区分批提交：README / CHANGELOG / PRD（OpenClaw、Agno、ADK 对比行）/ ci.yml / `scripts/cold_start_smoke.py` / 规格与计划同步，按领地分批 commit；
+- [ ] 演示 GIF 录制替换 README 占位（指引见 `docs/demo-recording.md`，分镜用 §7.2 三段式）；
+- [ ] 隐私核对（H15 遗留）：发布前截图 / Git 作者身份确认。
+
+### 7.2 内置客服自演示案例（RAG 问答主打，四件套）
+
+- [ ] 三段式演示脚本页（`demos/customer_service/`）：① 命中——FAQ 问题带 `[n]` 引用，Traces 看检索分数与费用归因；② 拒答——库外问题触发 `knowledge_no_hit` 按阈值拒答（防错答守门卖点）；③ 回归——`luban eval run` 跑 `cs_knowledge.yaml` 出命中率/拒答正确率；每段带预期事件流、可机器回放；
+- [ ] 评测报告快照数字写进 demo README（零密钥口径同步）；
+- [ ] 30s GIF 按三段式分镜录制；
+- [ ] 真实费用数字：填模型 Key 跑真模型取一次真实归因数据（FakeLLM 版本费用无说服力）。
+
+### 7.3 推广（演示案例就绪后）
+
+- [ ] 发布帖（掘金 / V2EX / HN），对比素材全部来自实测（LangChain 零件 vs 整车、Agno pip 库 vs 克隆住进去、Dify 毕业接力、OpenClaw 个人外挂 vs 企业生产基座）；
+- [ ] 目标 KPI：一个真实团队用满 3 个月（灯塔案例），不以 star 数为目标。
+
+### 7.4 设计债（不阻塞发布，择期评审）
+
+- [ ] `docs/design-docs/LubanAgent-retrieval-memory-resilience-design.md`（DRAFT）：对标 HelloAgents 四项借鉴（混合检索+重排 / 检索评测 / 记忆语义化+画像 / 工具熔断），待评审后排期；
+- [ ] `docs/design-docs/LubanAgent-superagent-design-reference.md`（2026-11-02）：DeepSeek Harness《Super-agent 设计探索》对照——核心层四项借鉴（异步 ReAct Loop / Inline & Spill 上下文预算 / Watchdog 控制回路 / Fast-Slow 两级过滤），渠道层（阶段 6）立项时以 §3 为架构需求输入；
+- [ ] A2A 协议（观察项，MCP 双向已覆盖当前需求）；
+- [ ] Agno 组件版本守卫交互设计（工作台参考项）。
+
+### 持续有效的不做清单
+
+渠道层（阶段 6，商用，不在本仓库）｜追任何竞品功能清单｜在线托管 SaaS / 低代码设计器 / 模型/Prompt 商城 / 通用后台管理 / 自建观测平台。
