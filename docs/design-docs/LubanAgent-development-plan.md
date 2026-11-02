@@ -317,7 +317,7 @@ flowchart LR
 
 #### D4-1 `lubanagent/ui` 开发者工作台（前端）
 
-- **技术栈**：React 18 + Vite + TypeScript + Tailwind + shadcn/ui（用户拍板，见架构设计 §7.10）。独立前端工程同仓库 `lubanagent/ui/` 子目录。
+- **技术栈**：React 18 + Vite + TypeScript + Tailwind + shadcn/ui（用户拍板，见架构设计 §8.10）。独立前端工程同仓库 `lubanagent/ui/` 子目录。
 - **开发内容**：页面覆盖 Agent 定义编辑、Agent 调试台（「对话 + Prompt 试跑」双 Tab 工作台：多轮对话调试 + 围绕当前 Agent 的 Prompt A/B 并排试跑）、模型对比试跑、Tool/MCP 在线测试、Skill 管理（上传/版本/分配）、Trace 可视化（事件时间线 + 节点详情，可借鉴 Langfuse React 前端的组件模式）、评测报告查看、Run 实时 SSE 流。
 - **关键架构**：**契约先行**——从后端 `/openapi.json` 用 `openapi-typescript` 生成 TS 类型、用 `openapi-fetch` 生成 API client，前后端对着同一份契约开发；Run 页面用 Vercel AI SDK 的流式 hook（或等价实现）订阅 SSE 流式渲染；shadcn/ui 组件源码复制进仓库（非 npm 黑盒），用户可改；前端先用 mock 数据跑通，后端路由就绪后切真。独立 `npm run dev` 可起（带 mock server），`npm run build` 后由 FastAPI 托管静态资源，生产单进程部署。工作台是开发辅助，不做托管/多租户。
 - **验收标准**：`npm run dev` 带 mock 起来，全部页面可点；OpenAPI codegen 产物入仓且与后端 schema 一致；接真后端后：能在工作台改 Agent 定义并触发一次 Run 看到 SSE 流；Trace 可视化能回放一次历史 Run；模型对比能并排展示两次试跑结果。
@@ -436,12 +436,12 @@ curl -N -X POST http://localhost:8000/v1/agents/customer-service-bot/runs -H "Co
 ## 6. 与上位文档的一致性
 
 - **PRD §6.1 交付范围（F1-F16 + 客服示例 + 最小 RAG，功能不分期）** → 本计划单元覆盖 F1-F16 全部 + 客服示例纵切（D5-1），仅按构建依赖序排阶段，无 P0/P1/P2 分期标签。
-- **PRD §1.3 / 技术提案 §16.12 / 架构 §7.9 交付形态（开源核心 + 商用渠道层）** → 阶段 0-5 为开源核心（D0-D5），阶段 6 为商用渠道层（D6-*，独立模块、不进开源仓库、单向依赖核心）。
+- **PRD §1.3 / 技术提案 §16.12 / 架构 §8.9 交付形态（开源核心 + 商用渠道层）** → 阶段 0-5 为开源核心（D0-D5），阶段 6 为商用渠道层（D6-*，独立模块、不进开源仓库、单向依赖核心）。
 - **技术提案 §11 仓库结构 + 架构 §2 目录树** → 单元与 `lubanagent/*` 子包、`app/*` 用户领地、`demos/*` 示例、`lubanagent-channels/*` 渠道层一一对应。
 - **架构 §3.2 依赖方向规则 + §4 领地隔离** → 0.2 硬约束、每单元"依赖/可并行"、§5 可拆卸性验收、import-linter 守卫一致落地。
 - **技术提案 §14 实现顺序（三步 + 渠道层）** → 阶段 1/2/3 对应三步，阶段 6 为渠道层（核心稳定后），阶段 4 前端与阶段 5 示例按契约先行/纵切穿插并行。
 - **架构 §6 观测适配器（双写、内部 DB source of truth、缺省 langfuse 非 none）** → D1-7 验收标准对齐（`=none` 可用、`=langfuse` 见 UI、七问由内部 DB 保证）。
-- **架构 §7.5 Tool 与 Mock 连接方式（Tool 不 import demos，走 BIZ_BASE_URL HTTP）** → D5-1 关键架构明确落地，既保依赖方向又演示接真实业务。
+- **架构 §8.5 Tool 与 Mock 连接方式（Tool 不 import demos，走 BIZ_BASE_URL HTTP）** → D5-1 关键架构明确落地，既保依赖方向又演示接真实业务。
 - **PRD §2.1/§9/§10 决策 14 目标人群切入点与冷启动策略（Dify 毕业生、独立服务部署口径、随包电池）** → D2-3 内置通用工具集 + D1-9 冷启动 CI 守卫 + D5-1 客服纵切对应落地；RAG/存储零外部依赖为 D3-1 既成决策（向量存 DB JSON + Python cosine）。
 
 ---
@@ -472,7 +472,7 @@ curl -N -X POST http://localhost:8000/v1/agents/customer-service-bot/runs -H "Co
 ### 7.4 设计债（不阻塞发布，择期评审）
 
 - [ ] `docs/design-docs/LubanAgent-retrieval-memory-resilience-design.md`（DRAFT）：对标 HelloAgents 四项借鉴（混合检索+重排 / 检索评测 / 记忆语义化+画像 / 工具熔断），待评审后排期；
-- [ ] `docs/design-docs/LubanAgent-superagent-design-reference.md`（2026-11-02）：DeepSeek Harness《Super-agent 设计探索》对照——核心层四项借鉴（异步 ReAct Loop / Inline & Spill 上下文预算 / Watchdog 控制回路 / Fast-Slow 两级过滤），渠道层（阶段 6）立项时以 §3 为架构需求输入；
+- [x] `docs/design-docs/LubanAgent-superagent-design-reference.md`（2026-11-02）：DeepSeek Harness《Super-agent 设计探索》对照——核心层四项借鉴（异步 ReAct Loop / Inline & Spill 上下文预算 / Watchdog 控制回路 / Fast-Slow 两级过滤）**已全部落地（2026-11-02，见 CHANGELOG「Super-agent 对照借鉴落地」）**，渠道层（阶段 6）立项时仍以 §3 为架构需求输入；
 - [ ] A2A 协议（观察项，MCP 双向已覆盖当前需求）；
 - [ ] Agno 组件版本守卫交互设计（工作台参考项）。
 

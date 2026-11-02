@@ -334,7 +334,7 @@ build_run_tree_cost_report(session, run_id)   # H11 Run 树归因
 | 术语 | 语义 |
 |---|---|
 | `TraceEventType` | `lubanagent.core.trace.TraceEventType`（`str, Enum`）定义的全部事件类型（19 种），本模块只是消费方（不定义枚举本身）：`RUN_STARTED`/`RUN_RESUMED`/`RUN_COMPLETED`/`RUN_FAILED`/`RUN_CANCELLED`/`STEP_STARTED`/`STEP_COMPLETED`/`MODEL_CALL_STARTED`/`MODEL_TOKEN_DELTA`/`MODEL_CALL_COMPLETED`/`TOOL_CALL_STARTED`/`TOOL_CALL_COMPLETED`/`TOOL_CALL_FAILED`/`TOOL_APPROVAL_REQUESTED`/`TOOL_APPROVAL_RESOLVED`/`BUDGET_WARNING`/`BUDGET_EXCEEDED`/`MODEL_FALLBACK`/`KNOWLEDGE_NO_HIT`（来源：`lubanagent/core/trace.py:12-31`；`RUN_RESUMED` 由 `TraceWriter.resume_run` 在 resume 续跑开始时落库，SSE 侧映射为 `run.resumed`） |
-| 七问 | PRD/架构设计所称"每次 Run 可回答的七个问题"：Agent 版本/模型/Prompt/工具调用/Token/费用/结束原因；本模块的 `runs`/`token_usages`/`cost_records`/`trace_events` 四表组合是这七问的数据来源（来源：架构设计 §8「每次 Run 可回答 PRD 的七问」、`Run` 领域模型字段 `agent_version`/`model_key`/`end_reason`/`token_usage`/`cost`） |
+| 七问 | PRD/架构设计所称"每次 Run 可回答的七个问题"：Agent 版本/模型/Prompt/工具调用/Token/费用/结束原因；本模块的 `runs`/`token_usages`/`cost_records`/`trace_events` 四表组合是这七问的数据来源（来源：架构设计 §9「每次 Run 可回答 PRD 的七问」、`Run` 领域模型字段 `agent_version`/`model_key`/`end_reason`/`token_usage`/`cost`） |
 | `source of truth` | 内部 DB（本模块四张核心表）是评测/成本/工作台 Trace 查看的唯一数据源，外部后端（Langfuse/LangSmith）只是可插拔的外发目标，不作为查询依据；自 H07 起落库的 `trace_events.payload` 是脱敏审计副本（秘密键/凭证形态字符串 → `[REDACTED]`），不是原始 payload 的逐字节复刻（来源：`writer.py:1,48-61`、架构设计 §6.1） |
 | `export_failures` | 外部观测后端写失败的留痕表，重试消费方是 `observability-adapters` 模块 `SafeBackend` 的 drain 收尾回放（成功删/失败计次/默认 3 次达上限放弃）；表定义在本模块共享的 `persistence/models/trace.py`，但写入方属 `observability-adapters` 模块的 `SafeBackend` |
 | 中立 error verdict | `AssertionVerdict.error` 非空时的判定结果：既不算通过也不算失败，从 pass/fail 聚合中排除，仅用于呈现"判定过程本身出错"这一事实（来源：`assertions.py:4-5`） |

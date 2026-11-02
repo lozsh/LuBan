@@ -1,6 +1,6 @@
 # LubanAgent Super-agent 设计参考分析
 
-> 状态：演进方向笔记（非定稿方案，不排期）。这是什么：对 DeepSeek Harness 团队《Super-agent 设计探索：迈向更自主的 Agent 系统》的对照分析——哪些思想可吸收进开源核心、哪些直接构成商用渠道层的架构蓝图、哪些明确不跟。更新日期：2026-11-02。对应代码模块：`lubanagent/runtime/`（agent_loop / context_builder / sse）、`lubanagent/graph/`（runner / checkpoint）、`lubanagent/multiagent/`、`lubanagent/memory/`、`lubanagent/extension/protocols.py`（三大扩展点）。
+> 状态：演进方向笔记（非定稿方案，不排期）。这是什么：对 DeepSeek Harness 团队《Super-agent 设计探索：迈向更自主的 Agent 系统》的对照分析——哪些思想可吸收进开源核心、哪些直接构成商用渠道层的架构蓝图、哪些明确不跟。更新日期：2026-11-02。**落地情况（2026-11-02）：§2 四项已全部落地**（异步 ReAct Loop=§2.1、Inline & Spill=§2.2、Watchdog 轻量版=§2.3、Fast/Slow Path 已入架构设计 §7=§2.4），详见 CHANGELOG「Super-agent 对照借鉴落地」条目。对应代码模块：`lubanagent/runtime/`（agent_loop / context_builder / sse）、`lubanagent/graph/`（runner / checkpoint）、`lubanagent/multiagent/`、`lubanagent/memory/`、`lubanagent/extension/protocols.py`（三大扩展点）。
 >
 > 来源：微信公众号原文 https://mp.weixin.qq.com/s/zoS7GlReWPhfCjENGxXCdg （原型仓库 dsh-superagent-prototype）。原文自称"面向工程实践的架构思路探讨，并非对 DeepSeek Harness 现有产品功能的介绍"。
 

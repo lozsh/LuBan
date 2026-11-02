@@ -132,7 +132,7 @@ lubanagent-repo/
 │   └── cli/                          # luban 命令行（init/eval/migrate/export）
 │       ├── main.py
 │       └── yaml_io.py                #   Agent YAML 导入/导出 IO
-│   ├── ui/                           # 开发者工作台前端工程（React 18 + Vite + TS + Tailwind + shadcn/ui，见 §7.10）
+│   ├── ui/                           # 开发者工作台前端工程（React 18 + Vite + TS + Tailwind + shadcn/ui，见 §8.10）
 │   │   ├── src/
 │   │   ├── package.json
 │   │   └── vite.config.ts            #   npm run dev 独立起；build 后由 FastAPI 托管静态资源
@@ -615,7 +615,7 @@ services:
     depends_on: [langfuse-db]
   langfuse-db:                                  # Langfuse 自己的 Postgres，与业务 MySQL 隔离
     image: postgres:16
-  mock-biz:                                     # 客服示例 Mock 业务服务（独立进程，见 §7.5）
+  mock-biz:                                     # 客服示例 Mock 业务服务（独立进程，见 §8.5）
     # 客服 Tool 通过 BIZ_BASE_URL 经 HTTP 调用，不直接 import demos/
 ```
 
@@ -639,7 +639,36 @@ services:
 
 ---
 
-## 7. 关键设计决策记录
+## 7. 通用设计模式：Fast / Slow Path 两级过滤
+
+> 来源：DeepSeek Harness《Super-agent 设计探索》对照分析（`LubanAgent-superagent-design-reference.md` §2.4）。本节是横切设计原则，指导后续一切"事件/输入过滤类"功能；本仓现有机制已多处暗合此模式，此处升格为明文契约。
+
+**问题模型**：系统一旦从"人类逐条键入提示词"转向"环境持续产生事件/输入"（渠道消息、回调、定时触发、外部工具结果），输入流就呈现"高噪音、低触发率"特征。对每条输入都调大模型判断，延迟与成本不可承受；只靠确定性规则，又拦不住需要语义理解的异常。
+
+**两级职责划分**：
+
+- **Fast Path（确定性代码闸，先行）**：可枚举、确定性、低误判代价、高频的判断固化为代码——来源/白名单/范围/阈值/格式校验，在调用模型之前滤除大部分无关输入。Fast Path 的每条拒绝必须留痕（trace 事件），可审计。
+- **Slow Path（LLM 语义闸，兜底）**：通过 Fast Path 的候选输入交给模型按提示词策略判断。提示词即策略——策略变更不改代码、不发版。Slow Path 判定必须输出结构化结果（可解释、可留痕），参照 `OutputGuard` 的 `GuardVerdict{allowed, reason, sanitized_text}` 样式。
+
+**本仓现有实例映射**（证明是既有设计的升格而非新发明）：
+
+| 机制 | Fast Path | Slow Path |
+| --- | --- | --- |
+| 工具治理（`tool/executor.py`） | 参数校验 + `ToolPermissionPolicy` 权限闸（代码） | 审批闸门（人工/语义兜底，HIGH 风险必过） |
+| 知识守门（`KnowledgeConfig`） | `score_threshold` 阈值过滤 + `max_age_days` 超龄丢弃 | `no_hit_fallback` 兜底话术（拒答优于错答） |
+| SSE 外发（`runtime/sse.py`） | `SSE_EVENT_MAP` 白名单（确定性过滤） | —（纯确定性场景，无需语义层） |
+| 取消检查点（`agent_loop.py`） | `_CHECKPOINT_EVENTS` 白名单（确定性事件选点） | — |
+| Watchdog（`watchdog/`） | 阈值判据（stale_events / long_running，纯代码） | `WatchdogActionHandler` 语义处置（可插拔） |
+
+**成本护栏**：Slow Path 的每次 LLM 判定必须过 `BudgetGuard` 记账；高频场景可采样或缓存判定结果；Fast Path 不得依赖模型。
+
+**反模式清单**：① Fast Path 里塞语义判断（如用正则判用户意图）；② Slow Path 判定不留痕、不可解释；③ 两级之间缺"升级"通道（Fast Path 拿不准的必须能交给 Slow Path，而不是静默丢弃）；④ 把 Slow Path 判定当唯一防线（其前面必须还有确定性兜底，模型判定本身不可作为权限/金额类决策依据）。
+
+**边界**：本模式的主战场是渠道层入站风控（商用，另案，见决策记录 §8.9）；开源核心内以上表机制为准，新增事件类功能（如 Webhook 触发、定时任务）设计时对照本节自查。
+
+---
+
+## 8. 关键设计决策记录
 
 1. **单仓库多子包，不拆多 PyPI 包**：借鉴 Pydantic AI 的职责切分（核心/评测/图），但 LubanAgent 是脚手架不是库，单仓库内 `lubanagent/` 一个 Python 包 + 子模块足够；拆多包会让"克隆即改"复杂化。
 2. **`app/` 为用户领地而非 `lubanagent/modules/`**：若依把业务放 `ruoyi-modules/`（框架命名空间下），用户改动与框架边界模糊；LubanAgent 把 `app/` 独立顶层，物理隔离更彻底，git merge 冲突范围最小化。
@@ -657,7 +686,7 @@ services:
 
 ---
 
-## 8. 非功能性要求落地
+## 9. 非功能性要求落地
 
 | 维度 | 要求 | 落地方式 |
 | --- | --- | --- |
@@ -672,7 +701,7 @@ services:
 
 ---
 
-## 9. 与上位文档的一致性核对
+## 10. 与上位文档的一致性核对
 
 - PRD §4 产品主线"若依式起步基座 + 自带监控" → §2 顶层领地划分（框架/用户/共享）落地"起步基座、可长期迭代"；§6 观测可插拔、默认 Langfuse 自部署落地"自带监控开箱即用"。
 - PRD §4 价值主张"全源码、代码优先、无黑盒、无强制 SaaS 依赖" → §6 双写模型（内部 DB 始终 source of truth）+ 外发后端可插拔可关闭（`OBSERVABILITY_BACKEND=none`）。注意："无强制 SaaS 依赖"指**数据主权与可关闭**，不是"默认关监控"——缺省仍是 Langfuse 自部署。
@@ -684,9 +713,9 @@ services:
 
 ---
 
-## 10. 实现状态
+## 11. 实现状态
 
-本文为架构设计，不包含代码实现。截至当前版本，§1-§9 所述设计与下列落地项均已实现（详见各模块代码与 `CHANGELOG.md`）：
+本文为架构设计，不包含代码实现。截至当前版本，§1-§10 所述设计与下列落地项均已实现（详见各模块代码与 `CHANGELOG.md`）：
 
 - 扩展点 Protocol 完整方法签名：`lubanagent/extension/protocols.py`（含 async Hook / KnowledgeConnector / 渠道层三扩展点）。
 - `import-linter` 配置：仓库根 `importlinter.toml`（CI 守卫依赖方向，含渠道层单向约束）。
@@ -694,4 +723,4 @@ services:
 - CLI 命令：`luban init` / `luban eval` / `luban export` / `luban migrate`（`lubanagent/cli/`）。
 - Prompt 库一等实体：`prompts`/`prompt_versions` 表 + `PromptRepository` + `/v1/prompts` 六端点（列表/创建/详情/版本列表/发版/版本详情）+ Agent 创建/发版落库前 `resolve_prompt_reference` 解析；工作台 `/prompts` 页面配套。
 - DB schema 首版：`lubanagent/persistence/models/` + 仓库根 `migrations/` + `alembic.ini`。
-- 开发者工作台前端：`lubanagent/ui/`（React 18 + Vite + TS + Tailwind + shadcn/ui，技术栈见 §7.10）。
+- 开发者工作台前端：`lubanagent/ui/`（React 18 + Vite + TS + Tailwind + shadcn/ui，技术栈见 §8.10）。

@@ -27,6 +27,7 @@ LubanAgent 是开源（Apache-2.0）的 Agent 工程基座：Python ≥3.11 + La
 | observability-adapters | 可插拔 ObservabilityBackend 适配器（Langfuse/LangSmith/noop）、失败隔离与降级、export_failures 留痕 | `modules/observability-adapters.md` |
 | persistence | SQLAlchemy 模型 + 仓储层 + Alembic 迁移，23 张表（含 Prompt 库 prompts/prompt_versions、知识库 knowledge_sources、审批记录 approvals），是几乎所有其他模块的数据落地点 | `modules/persistence.md` |
 | api-app-cli | REST/SSE 接入路由、鉴权委托、`create_app()` 装配根、`luban` 命令行 | `modules/api-app-cli.md` |
+| watchdog | 外部 Watchdog 控制回路（默认关）：周期巡检 RUNNING Run 进展信号（stale_events/long_running）、WATCHDOG_ALERT 告警留痕、可插拔处置（默认只告警，可注入自动取消）；取消经回调绑定不 import runtime | `modules/watchdog.md` |
 | app-user-land | 用户领地装配根 + 客服示例（Agent/Tool/Graph/Team/Skill/知识源）+ 部门项目问答范本（dept-project + project-docs）+ 独立 Mock 业务服务 | `modules/app-user-land.md` |
 | tutorial | 新手动手教程（website/tutorial/，8+1 课）对外部事实的引用登记：命令语义/事件名/命名空间约定/互链，代码演进时的漂移抽查锚点 | `modules/tutorial.md` |
 

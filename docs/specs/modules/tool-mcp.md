@@ -14,7 +14,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 ## 定位
 
-`lubanagent/tool/` 与 `lubanagent/mcp/` 是框架的 Tool 执行治理层：确定性规则（参数校验、权限、审批、超时、重试、幂等）由代码强制执行而非 Prompt 声明（来源：`lubanagent/tool/executor.py:1`）。核心是 `ToolExecutor`（工具执行管线）、`ApprovalManager`（高风险人工确认，审批存储可插拔——缺省进程内 `MemoryApprovalStore`，注入 `DbApprovalStore` 后决定落库，见 `lubanagent/tool/approval.py:1-11`）、`McpClient`/`McpRegistry`/`create_mcp_server`（MCP 双向桥：接外部 MCP Server 的工具、把本地 Tool 反向暴露为 MCP Server）。本模块不落自有业务数据表，仅依赖 `persistence` 的 `mcp_servers` 表（`McpServerRow`，见 `lubanagent/persistence/models/misc.py:27-38`）持久化 MCP Server 连接配置。
+`lubanagent/tool/` 与 `lubanagent/mcp/` 是框架的 Tool 执行治理层：确定性规则（参数校验、权限、审批、超时、重试、幂等）由代码强制执行而非 Prompt 声明（来源：`lubanagent/tool/executor.py:1`）。核心是 `ToolExecutor`（工具执行管线，拆为 `preflight`（校验/权限/审批，段 1-3）与 `launch`（执行/超时/重试，段 4-6）两段，`execute = preflight + launch`——拆分是为了让异步工具桥在 spawn 后台任务之前同步走完审批前置，见"行为·调用树"）、`ApprovalManager`（高风险人工确认，审批存储可插拔——缺省进程内 `MemoryApprovalStore`，注入 `DbApprovalStore` 后决定落库，见 `lubanagent/tool/approval.py:1-11`）、`McpClient`/`McpRegistry`/`create_mcp_server`（MCP 双向桥：接外部 MCP Server 的工具、把本地 Tool 反向暴露为 MCP Server）。本模块不落自有业务数据表，仅依赖 `persistence` 的 `mcp_servers` 表（`McpServerRow`，见 `lubanagent/persistence/models/misc.py:27-38`）持久化 MCP Server 连接配置。
 
 ## 接口契约
 
@@ -63,11 +63,13 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 - `duration_ms: float = 0.0`
 - `attempts: int = 1`
 
-**`ToolExecutor`**（`lubanagent/tool/executor.py:107-261`）：
+**`ToolExecutor`**（`lubanagent/tool/executor.py:107-283`）：
 - `__init__(self, *, permission_policy: ToolPermissionPolicy | None = None, approval_handler: ApprovalHandler | None = None, clock: Callable[[], float] | None = None, sleep: Callable[[float], Awaitable[None]] | None = None) -> None`（110-121 行）
-- `async def execute(self, registered: RegisteredTool, args: dict[str, Any], *, ctx: RunContext | None = None) -> ToolResult`（123-205 行）— 完整执行管线入口
-- `async def execute_by_key(self, key: str, args: dict[str, Any], *, registry: Registry | None = None, ctx: RunContext | None = None) -> ToolResult`（207-220 行）— 按 key 从 Registry 查工具后执行；未注册返回 `ToolResult(success=False, error=...)` 而非抛异常
-- `_validate_args` / `_invoke` / `_elapsed_ms` / `_fail` 为内部方法（222-261 行）
+- `async def execute(self, registered: RegisteredTool, args: dict[str, Any], *, ctx: RunContext | None = None) -> ToolResult`（123-140 行）— 完整执行管线入口，= `preflight` + `launch`；`duration_ms` 口径含 preflight 耗时（审批等待计入时长，与拆分前一致，`executor.py:138-140`）
+- `async def preflight(self, registered: RegisteredTool, args: dict[str, Any], *, ctx: RunContext | None = None) -> dict[str, Any]`（142-178 行）— 管线段 1-3（参数校验 + 权限 + 审批闸门），通过返回 validated args；**失败抛 `LubanError`**（区别于 `execute` 的失败 `ToolResult` 收敛）——异步工具桥在 spawn 后台任务之前同步调用本段，保证审批（含 WAITING_APPROVAL 状态往返）不发生在后台协程里（`executor.py:149-154` docstring）
+- `async def launch(self, registered: RegisteredTool, validated_args: dict[str, Any], *, ctx: RunContext | None = None) -> ToolResult`（180-227 行）— 管线段 4-6（执行 + 超时 + 重试，仅幂等工具可重试）；preflight 通过后调用，入参为 preflight 产出的 validated args
+- `async def execute_by_key(self, key: str, args: dict[str, Any], *, registry: Registry | None = None, ctx: RunContext | None = None) -> ToolResult`（229-242 行）— 按 key 从 Registry 查工具后执行；未注册返回 `ToolResult(success=False, error=...)` 而非抛异常
+- `_validate_args` / `_invoke` / `_elapsed_ms` / `_fail` 为内部方法（244-283 行）
 
 **`ToolPermissionPolicy`**（Protocol，`lubanagent/tool/executor.py:47-54`）：`async def check(self, ctx, tool, args) -> None`，拒绝时抛 `LubanError(TOOL_PERMISSION_DENIED)`。默认实现 `AllowAllToolPermissionPolicy`（57-63 行）不拒绝任何调用。
 
@@ -137,33 +139,65 @@ pending --(wait_for_decision 超时 default_timeout_seconds)--> expired
 
 #### ToolExecutor.execute（工具执行治理管线）
 
-由 Runtime（Agent Loop）或 `debug_tool` 发起，对单次工具调用按固定顺序做参数校验→权限检查→人工确认→执行+超时+重试，任一前置环节失败立即返回失败 `ToolResult`，不进入执行（来源：`lubanagent/tool/executor.py:123-205` 注释"管线顺序即契约"）。
+由 Runtime（Agent Loop）或 `debug_tool` 发起，对单次工具调用按固定顺序做参数校验→权限检查→人工确认→执行+超时+重试，任一前置环节失败立即返回失败 `ToolResult`，不进入执行（来源：`lubanagent/tool/executor.py:108` 注释"管线顺序即契约"）。管线拆为 `preflight`（段 1-3，失败**抛 `LubanError`**）与 `launch`（段 4-6）两段，`execute = preflight + launch` 且 `duration_ms` 含 preflight 耗时（`executor.py:123-140`）。
 
 ```
 ToolExecutor.execute(registered, args, ctx)
-├── 1. _validate_args  # 按 descriptor.args_schema 动态建 pydantic 模型校验; 失败 -> VALIDATION_ERROR, attempts=0
-├── 2. [permission_policy 不为 None] permission_policy.check(ctx, descriptor, validated)
-│   └── 拒绝 -> LubanError(TOOL_PERMISSION_DENIED), attempts=0
-├── 3. [contract.approval_required or descriptor.risk == RiskLevel.HIGH] 人工确认闸门
-│   ├── [approval_handler is None] -> ToolApprovalRequiredError, attempts=0 (由上层 Runtime 接住并暂停 Run)
-│   └── [approval_handler 存在] await approval_handler(descriptor, validated)
-│       ├── approved=True -> 放行进入第 4 步
-│       └── approved=False -> LubanError(TOOL_APPROVAL_REQUIRED, decision=rejected), attempts=0
-└── 4-6. 执行 + 超时 + 重试循环 (max_attempts = max_retries+1 若 idempotent 否则 1)
-    ├── _invoke(handler, validated, timeout_seconds, ctx)  # anyio.fail_after 强制超时
-    │   ├── [handler 签名含 _ctx] 注入 RunContext
-    │   ├── [async handler] await handler(**args)
-    │   └── [sync handler] anyio.to_thread.run_sync
-    ├── 成功 -> ToolResult(success=True, value=_json_safe(value), attempts=attempt)
-    ├── TimeoutError -> RUN_TIMEOUT
-    ├── LubanError -> 原样透传
-    ├── 其他 Exception -> 收敛为 TOOL_EXECUTION_FAILED（消息稳定为 `工具 X 执行失败: 类型名`，details 仅 `{"tool", "exception": 类型名}`，异常正文不进 details，`executor.py:192-201`）
-    └── [attempt < max_attempts] sleep(0.1 * 2**(attempt-1)) 指数退避后重试; 否则返回失败 ToolResult
+├── preflight(registered, args, ctx)  # executor.py:142-178；失败抛 LubanError -> execute 收敛为失败 ToolResult(attempts=0)
+│   ├── 1. _validate_args  # 按 descriptor.args_schema 动态建 pydantic 模型校验; 失败 -> VALIDATION_ERROR
+│   ├── 2. [permission_policy 不为 None] permission_policy.check(ctx, descriptor, validated)
+│   │   └── 拒绝 -> LubanError(TOOL_PERMISSION_DENIED)
+│   └── 3. [contract.approval_required or descriptor.risk == RiskLevel.HIGH] 人工确认闸门
+│       ├── [approval_handler is None] -> ToolApprovalRequiredError (由上层 Runtime 接住并暂停 Run)
+│       └── [approval_handler 存在] await approval_handler(descriptor, validated)
+│           ├── approved=True -> 返回 validated args
+│           └── approved=False -> LubanError(TOOL_APPROVAL_REQUIRED, decision=rejected)
+└── launch(registered, validated, ctx)  # executor.py:180-227；段 4-6 执行 + 超时 + 重试
+    └── 重试循环 (max_attempts = max_retries+1 若 idempotent 否则 1)
+        ├── _invoke(handler, validated, timeout_seconds, ctx)  # anyio.fail_after 强制超时
+        │   ├── [handler 签名含 _ctx] 注入 RunContext
+        │   ├── [async handler] await handler(**args)
+        │   └── [sync handler] anyio.to_thread.run_sync
+        ├── 成功 -> ToolResult(success=True, value=_json_safe(value), attempts=attempt)
+        ├── TimeoutError -> RUN_TIMEOUT
+        ├── LubanError -> 原样透传
+        ├── 其他 Exception -> 收敛为 TOOL_EXECUTION_FAILED（消息稳定为 `工具 X 执行失败: 类型名`，details 仅 `{"tool", "exception": 类型名}`，异常正文不进 details，`executor.py:214-223`）
+        └── [attempt < max_attempts] sleep(0.1 * 2**(attempt-1)) 指数退避后重试; 否则返回失败 ToolResult
+```
+
+#### 异步工具调用（execution_mode="async"，运行时开关默认关）
+
+`ToolContract.execution_mode`（`lubanagent/core/tool.py:29`）声明工具为异步：调用方不阻塞等结果，而是立即拿到占位（`{"status":"started","task_id":"task-N"}`），后台协程跑 `executor.launch`，模型再用伴生工具取结果/终止。生效需同时满足：`@tool(execution_mode="async")` 声明（`lubanagent/extension/decorators.py:49、67`）+ 运行时开关开（`AgentRuntime(async_tools=...)` 或 env `TOOL_ASYNC_ENABLED`，默认 False）+ 该 Agent 的工具集中确有 async 工具（`lubanagent/runtime/agent_loop.py:711-727`）。**任一条件不满足按 sync 路径执行（唯一存量路径，零行为变化）**（`agent_loop.py:232-234`）。
+
+```
+bridge(async 工具调用)  # lubanagent/runtime/agent_loop.py:1180-1242
+├── emit TOOL_CALL_STARTED  # 与 sync 路径一致
+├── executor.preflight(registered, kwargs, ctx)  # 审批前置到 spawn 之前：WAITING_APPROVAL 往返在本同步段完成，不在后台协程里（agent_loop.py:1182）
+│   └── [抛 LubanError] -> _bridge_fail（TOOL_CALL_FAILED，agent_loop.py:1184、1295）
+├── AsyncToolRunner.start(...)  # spawn 后台监督协程；并发满（8）返回 None -> 回喂 TOOL_TASK_LIMIT 错误，不 spawn（agent_loop.py:1187-1221；async_tools.py:66、83-86）
+├── emit TOOL_TASK_ACCEPTED {tool, task_id}  # 占位返回（SSE 外发名 task.started），不发 TOOL_CALL_COMPLETED——生命周期由 TOOL_TASK_* 事件接管（agent_loop.py:1231-1238）
+└── return '{"status":"started","task_id":"task-N","tool":key}'  # 占位即一步：LangGraph 计一步，步数预算天然限制 spawn 频率
+
+后台监督协程（AsyncToolRunner._supervise，async_tools.py:139-228）
+├── executor.launch(registered, validated_args, ctx)  # 段 4-6 在后台执行（async_tools.py:154）
+├── [Run 取消（token.subscribe_async 等待器置位）] exec_task.cancel -> TOOL_TASK_CANCELLED(reason=run_cancelled)
+├── 成功 -> TOOL_TASK_COMPLETED {tool, task_id, result, duration_ms}
+├── 失败 -> TOOL_TASK_FAILED {tool, task_id, error}
+└── [被 stop/终态清理取消] TOOL_TASK_CANCELLED(reason=stop/run_finalized)
+    # 监督协程只发 TOOL_TASK_* 事件、只读启动时快照，绝不写 step_state（单写者原则，async_tools.py:59-64）
+
+模型回读/终止（伴生工具，随开关注入并按 luban: 前缀惯例防命名冲突，agent_loop.py:719-721、1133-1141）
+├── task_result(task_id) -> running {status, elapsed_ms} / 终态 {status, result|error}；进程重启后 registry 为空 -> {"status":"not_found"}（如实降级，async_tools.py:230-258）
+└── task_stop(task_id) -> {"stopped": bool}；已结束返回 stopped=false（async_tools.py:275-283）
+
+Run 终态清理（agent_loop.py:967-996）
+└── async_runner.cancel_all(reason="run_finalized")  # 取消未收任务、等监督协程收敛（TOOL_TASK_CANCELLED 先于终态事件）
+    └── abandoned_tasks（模型从未经 task_result 收走结果的 task_id）非空时并入终态事件 payload（agent_loop.py:1046、1062-1063）
 ```
 
 #### create_mcp_server（本地工具反向导出）
 
-`export_tools` 缺省空集；遍历 Registry 仅注册白名单中的非 `mcp:` 工具。调用时 `_build_tool_fn` 将参数和可选 `RunContext` 交 `ToolExecutor.execute`，权限策略与审批处理器由注入的 executor 决定；无处理器时 HIGH 或 `approval_required` 拒绝，不执行 handler；失败映射 MCP `ToolError`（`mcp/server.py:63-75、95-113`；`tool/executor.py:123-205`）。不自动创建持久审批或 Trace sink。
+`export_tools` 缺省空集；遍历 Registry 仅注册白名单中的非 `mcp:` 工具。调用时 `_build_tool_fn` 将参数和可选 `RunContext` 交 `ToolExecutor.execute`，权限策略与审批处理器由注入的 executor 决定；无处理器时 HIGH 或 `approval_required` 拒绝，不执行 handler；失败映射 MCP `ToolError`（`mcp/server.py:63-75、95-113`；`tool/executor.py:123-140`）。不自动创建持久审批或 Trace sink。
 
 #### McpRegistry.discover_tools（MCP 远端工具发现）
 
@@ -183,29 +217,34 @@ McpRegistry.discover_tools(key, into)
 
 ## 边界规则
 
-- 高风险判定：`contract.approval_required or descriptor.risk == RiskLevel.HIGH` 触发人工确认闸门，二者任一为真即拦截，非仅 `RiskLevel.HIGH` 单一条件（来源：`lubanagent/tool/executor.py:148`）。业务示例 `app/tools/customer_service/refund.py:20-27` 同时设置 `risk=RiskLevel.HIGH` 与 `approval_required=True`（冗余但一致）。
-- 无 `approval_handler` 时人工确认环节直接返回 `ToolApprovalRequiredError` 失败结果（`attempts=0`），不会挂起等待；真正的"暂停 Run 等待人工决定"由上层 Runtime（Agent Loop）负责接住该错误并驱动 `ApprovalManager`（来源：`lubanagent/tool/executor.py:149-156` 注释 + `lubanagent/runtime/agent_loop.py:745-748` 中 `ToolExecutor(approval_handler=gate, ...)` 的桥接构造）。
-- 重试仅对 `contract.idempotent == True` 的工具生效，`max_attempts = max_retries + 1`；非幂等工具固定 `max_attempts = 1`，即使抛可重试异常也不重试（来源：`lubanagent/tool/executor.py:170` 注释"非幂等工具永不重试"）。
-- 重试退避策略固定为 `0.1 * 2 ** (attempt - 1)` 秒指数退避，无最大退避上限、无最大重试次数上限校验（由业务方在 `@tool(max_retries=...)` 自行设定合理值），代码位置 `lubanagent/tool/executor.py:203`。
-- 超时由 `contract.timeout_seconds` 控制，经 `anyio.fail_after` 强制执行，同步 handler 通过 `anyio.to_thread.run_sync` 移交线程池执行但仍受同一超时约束（来源：`lubanagent/tool/executor.py:247-250`）。
-- 参数校验先于权限检查、审批之前执行；校验失败（`VALIDATION_ERROR`）不消耗审批或执行资源（来源：管线顺序，`lubanagent/tool/executor.py:134-146`）。
+- 高风险判定：`contract.approval_required or descriptor.risk == RiskLevel.HIGH` 触发人工确认闸门，二者任一为真即拦截，非仅 `RiskLevel.HIGH` 单一条件（来源：`lubanagent/tool/executor.py:166`）。业务示例 `app/tools/customer_service/refund.py:20-27` 同时设置 `risk=RiskLevel.HIGH` 与 `approval_required=True`（冗余但一致）。
+- 无 `approval_handler` 时人工确认环节直接返回 `ToolApprovalRequiredError` 失败结果（`attempts=0`），不会挂起等待；真正的"暂停 Run 等待人工决定"由上层 Runtime（Agent Loop）负责接住该错误并驱动 `ApprovalManager`（来源：`lubanagent/tool/executor.py:167-170` + `lubanagent/runtime/agent_loop.py:1086-1131` `_executor_for_run` 中 `ToolExecutor(approval_handler=gate, ...)` 的桥接构造）。
+- 重试仅对 `contract.idempotent == True` 的工具生效，`max_attempts = max_retries + 1`；非幂等工具固定 `max_attempts = 1`，即使抛可重试异常也不重试（来源：`lubanagent/tool/executor.py:192` 注释"非幂等工具永不重试"）。
+- 重试退避策略固定为 `0.1 * 2 ** (attempt - 1)` 秒指数退避，无最大退避上限、无最大重试次数上限校验（由业务方在 `@tool(max_retries=...)` 自行设定合理值），代码位置 `lubanagent/tool/executor.py:225`。
+- 超时由 `contract.timeout_seconds` 控制，经 `anyio.fail_after` 强制执行，同步 handler 通过 `anyio.to_thread.run_sync` 移交线程池执行但仍受同一超时约束（来源：`lubanagent/tool/executor.py:269-272`）。
+- 参数校验先于权限检查、审批之前执行；校验失败（`VALIDATION_ERROR`）不消耗审批或执行资源（来源：管线顺序，`lubanagent/tool/executor.py:155-178`）。
 - `_accepts_ctx` 依赖 handler 显式声明 `_ctx` 形参名才会注入 `RunContext`，这是一种"约定式扩展"而非类型驱动，普通工具函数无需感知（来源：`lubanagent/tool/executor.py:89-95` 注释）。
-- **通用异常正文不进错误详情（H07）**：非 `LubanError` 异常收敛为 `TOOL_EXECUTION_FAILED` 时，消息为稳定格式 `工具 {key} 执行失败: {类型名}`、`details` 仅含 `{"tool": key, "exception": 类型名}`（`lubanagent/tool/executor.py:192-201`），不再拼 `str(exc)`——SDK/上游正文/URL/凭证不进 `ToolResult.error`（进而也不进 `TOOL_CALL_FAILED` 事件/`Run.error`）；完整堆栈仅进日志。
-- MCP Server 默认无导出：`export_tools=None`/空集不注册任何工具；只精确匹配本地工具 key，并跳过 `mcp:` 远端工具，避免二次转发（`mcp/server.py:63-74`）。全部已导出调用均经 `ToolExecutor`，HIGH/`approval_required` 缺审批处理器时拒绝，不能把默认 executor 当成审批自动通过（`server.py:100-108`；`tool/executor.py:142-156`）。
+- **通用异常正文不进错误详情（H07）**：非 `LubanError` 异常收敛为 `TOOL_EXECUTION_FAILED` 时，消息为稳定格式 `工具 {key} 执行失败: {类型名}`、`details` 仅含 `{"tool": key, "exception": 类型名}`（`lubanagent/tool/executor.py:214-223`），不再拼 `str(exc)`——SDK/上游正文/URL/凭证不进 `ToolResult.error`（进而也不进 `TOOL_CALL_FAILED` 事件/`Run.error`）；完整堆栈仅进日志。
+- MCP Server 默认无导出：`export_tools=None`/空集不注册任何工具；只精确匹配本地工具 key，并跳过 `mcp:` 远端工具，避免二次转发（`mcp/server.py:63-74`）。全部已导出调用均经 `ToolExecutor`，HIGH/`approval_required` 缺审批处理器时拒绝，不能把默认 executor 当成审批自动通过（`server.py:100-108`；`tool/executor.py:142-178`）。
 - MCP HTTP 与 REST 鉴权互不代替：`run_server(transport="http")` 无独立 `http_api_key` 时启动报 `CONFIG_ERROR`；`create_mcp_server` 始终向 FastMCP 配置 SDK `AuthSettings`/`token_verifier`，故即使直接挂 `streamable_http_app()`，无 Key 的 token 也不通过；有 Key 时验证 Bearer token，MCP `client_id="mcp-key-holder"` 仅代表该 Key 持有者，不是独立人员身份（`mcp/server.py:27-62、78-92`）。默认绑定 `127.0.0.1`；stdio 仅面向受信本地进程，不代表 REST 主体身份。可注入 executor 与 `RunContext`，但无内建持久审批或 Trace sink 承诺。
 - MCP 工具返回值经 `structured_output=False` 走文本 content（`mcp/server.py:69-74`），跨进程边界不传递结构化 Python 对象。
 - MCP Client 长连复用（D1-9 性能项已落地）：首个调用触发建立会话（stdio 子进程 + initialize 握手，或 streamable-http 建连）并缓存，后续调用复用；调用抛非 `LubanError` 异常（连接断/超时/取消）时废弃连接、下次调用重建自愈（server 重启后不卡死坏连接）；`LubanError`（远端业务报错）不废弃连接（连接仍健康）。连接生命周期由专属 keeper 后台任务持有——anyio 取消作用域绑定宿主任务，跨任务退出会破坏取消协议（来源：`lubanagent/mcp/client.py:40-72` `_Connection`/`McpClient` docstring）。**同一 client 调用经 `asyncio.Lock` 串行化**（stdio 单管道/http 单会话，串行实现最简不引入请求交错）；需要真并行为同一 server 建多个 `McpClient` 实例。client 绑定首次使用的事件循环，跨多个 `asyncio.run` 使用同一实例不受支持。
 - MCP 长连的释放：`McpClient.close()`/`McpRegistry.aclose()`（关闭全部缓存 client）幂等，供应用 shutdown 钩子调用；MCP 当前未接入 factory 装配（无对象可挂 shutdown 钩子），close/aclose 已备好待接入时调用（来源：`client.py:139-142`、`registry.py:90-95`）。
-- 依赖方向：`lubanagent/tool/` 与 `lubanagent/mcp/` 均未 import 任何 `app/tools/*` 具体业务 Tool 实现（验证：对 `executor.py`/`approval.py`/`mock.py`/`client.py`/`server.py`/`registry.py` 的 import 语句逐一核对，只依赖 `lubanagent.core`、`lubanagent.extension`、`mcp`（第三方 SDK）、标准库与 `anyio`/`pydantic`），符合框架不依赖用户领地的架构约束（对照 `AGENTS.md` §4 领地隔离）；业务 Tool 通过 `@tool(...)` 装饰器（`lubanagent/extension/decorators.py:37-69`）反向注册进 `Registry`，方向为 `app → lubanagent`。
-- 审批归因与持久化边界：HTTP 决定人由 `get_principal()` 给出的主体写入 `ApprovalRequest`，客户端提交的 `decided_by` 不采信（`api/routes/approvals.py:39-56`；`tool/approval.py:158-176`）。Runtime 的 `TOOL_APPROVAL_RESOLVED` Trace 带 `status`/`decided_by`/`decided_at`（ISO 8601 或 null，`runtime/agent_loop.py:1070-1085`）。审批记录经 `ApprovalStore` 可插拔：`create_app` 默认装配 `ApprovalManager(store=DbApprovalStore(db))` 落库（决定不随进程重启丢失、不重复、可审计回查）；`ApprovalManager()` 缺省仍为进程内 `MemoryApprovalStore`（库内嵌/测试零迁移）。**审批记录持久化 ≠ Run 自动恢复**——普通 Agent Run 已有逐步 checkpoint（2026-10 起），但恢复须显式调 `POST /v1/runs/{run_id}/resume`（非终态且有 checkpoint），无自动重启恢复、审批闸门语义不随 resume 改变，本机制只保证"决定本身"不丢、不重复、可归因。内置共享 REST Key 仅证明 Key 持有者，不能据此宣称具体人员归因或职责分离（`api/auth.py:21-30`）。自动批准标记 `auto-approve` 而非真人（`tool/approval.py:216-218`）。
+- **异步工具（execution_mode="async"）审批前置与降级**：审批（含 WAITING_APPROVAL 状态往返）在 bridge 同步段经 `executor.preflight` 完成，**不发生在后台协程里**——否则已终态 Run 会被后台审批改回 WAITING_APPROVAL（来源：`lubanagent/tool/executor.py:149-154` docstring、`lubanagent/runtime/agent_loop.py:1157-1160、1180-1186`）。开关关闭或无 async 工具时按 sync 路径执行（零行为变化，`agent_loop.py:232-234`）。
+- **异步工具任务不持久化、进程重启即丢（如实降级）**：`AsyncToolRunner` 是 per-run 进程内存登记处，进程重启后 `task_result` 返回 `not_found`（不假装可恢复），僵尸 RUNNING Run 由外部 Watchdog 兜底（默认关，见 watchdog 模块文档）（来源：`lubanagent/runtime/async_tools.py:1-11` 模块 docstring、`:250-258`）。
+- **异步占位调用的时长与事件口径**：占位返回即收敛该次工具调用（`TOOL_CALL_STARTED` → `TOOL_TASK_ACCEPTED`，不发 `TOOL_CALL_COMPLETED`）；`execute` 的 `duration_ms` 口径含 preflight 耗时（审批等待计入时长是既有序列，与拆分前一致）（来源：`lubanagent/tool/executor.py:138-140`、`lubanagent/runtime/agent_loop.py:1231-1242`）。
+- **伴生工具命名冲突**：`task_result`/`task_stop` 与用户注册的同名工具冲突时改名 `luban:<key>` 并记 warning（照 `skill_load` 惯例，`lubanagent/runtime/agent_loop.py:1133-1141`）。
+- 依赖方向：`lubanagent/tool/` 与 `lubanagent/mcp/` 均未 import 任何 `app/tools/*` 具体业务 Tool 实现（验证：对 `executor.py`/`approval.py`/`mock.py`/`client.py`/`server.py`/`registry.py` 的 import 语句逐一核对，只依赖 `lubanagent.core`、`lubanagent.extension`、`mcp`（第三方 SDK）、标准库与 `anyio`/`pydantic`），符合框架不依赖用户领地的架构约束（对照 `AGENTS.md` §4 领地隔离）；业务 Tool 通过 `@tool(...)` 装饰器（`lubanagent/extension/decorators.py:40-74`）反向注册进 `Registry`，方向为 `app → lubanagent`。
+- 审批归因与持久化边界：HTTP 决定人由 `get_principal()` 给出的主体写入 `ApprovalRequest`，客户端提交的 `decided_by` 不采信（`api/routes/approvals.py:39-56`；`tool/approval.py:158-176`）。Runtime 的 `TOOL_APPROVAL_RESOLVED` Trace 带 `status`/`decided_by`/`decided_at`（ISO 8601 或 null，`runtime/agent_loop.py:1110-1124`）。审批记录经 `ApprovalStore` 可插拔：`create_app` 默认装配 `ApprovalManager(store=DbApprovalStore(db))` 落库（决定不随进程重启丢失、不重复、可审计回查）；`ApprovalManager()` 缺省仍为进程内 `MemoryApprovalStore`（库内嵌/测试零迁移）。**审批记录持久化 ≠ Run 自动恢复**——普通 Agent Run 已有逐步 checkpoint（2026-10 起），但恢复须显式调 `POST /v1/runs/{run_id}/resume`（非终态且有 checkpoint），无自动重启恢复、审批闸门语义不随 resume 改变，本机制只保证"决定本身"不丢、不重复、可归因。内置共享 REST Key 仅证明 Key 持有者，不能据此宣称具体人员归因或职责分离（`api/auth.py:21-30`）。自动批准标记 `auto-approve` 而非真人（`tool/approval.py:216-218`）。
 
 ## 名词
 
 | 术语 | 语义 |
 |---|---|
-| RiskLevel | 工具风险等级枚举：`low`/`medium`/`high`（`lubanagent/core/tool.py:9-14`），`high` 会与 `approval_required` 一起触发人工确认闸门 |
-| ToolContract | 工具执行契约（超时/重试/幂等/是否需审批），由代码强制执行而非 Prompt 声明（`lubanagent/core/tool.py:17-23`），本模块只消费不定义 |
-| ToolDescriptor | 工具注册描述（key/name/description/args_schema/risk/contract/signature_hash），`lubanagent/core/tool.py:26-35`，本模块只消费不定义 |
+| RiskLevel | 工具风险等级枚举：`low`/`medium`/`high`（`lubanagent/core/tool.py:11-16`），`high` 会与 `approval_required` 一起触发人工确认闸门 |
+| ToolContract | 工具执行契约（超时/重试/幂等/是否需审批/执行模式），由代码强制执行而非 Prompt 声明（`lubanagent/core/tool.py:18-29`），本模块只消费不定义 |
+| ToolDescriptor | 工具注册描述（key/name/description/args_schema/risk/contract/signature_hash），`lubanagent/core/tool.py:32-41`，本模块只消费不定义 |
+| execution_mode | `ToolContract` 的执行模式字段：`sync`（调用方阻塞等结果，唯一存量路径）/ `async`（立即返回占位、后台执行、模型经 `task_result`/`task_stop` 伴生工具取结果/终止），默认 `"sync"`（`lubanagent/core/tool.py:29`）；`async` 需运行时开关 `TOOL_ASYNC_ENABLED`（`AgentRuntime(async_tools=...)`，默认 False）同时开启，关闭时 async 声明按 sync 路径执行（零行为变化）。由 `@tool(execution_mode=...)` 装饰器透传（`lubanagent/extension/decorators.py:49、67`），运行时行为详见 runtime 模块文档 |
 | RegisteredTool | `descriptor + handler` 的注册态组合（`lubanagent/extension/registry.py:18-21`），是 `ToolExecutor.execute` 的第一个入参类型 |
 | Registry / default_registry | 用户扩展运行期注册表，框架侧只读查询，不 import 用户模块（`lubanagent/extension/registry.py:24-118`） |
 | Approval（审批） | 高风险工具执行前的人工确认动作，由 `ApprovalManager` 管理生命周期（`lubanagent/tool/approval.py`），是"确定性规则由代码执行"原则的一部分；记录存储经 `ApprovalStore` 协议可插拔（进程内缺省 / `DbApprovalStore` 落库） |
@@ -220,7 +259,7 @@ McpRegistry.discover_tools(key, into)
 | 依赖方 | 触发接口 | 依赖内容 |
 |---|---|---|
 | `lubanagent/core`（core 模块） | Python import | `ToolDescriptor`、`ToolContract`、`RiskLevel`、`RunContext`、`ErrorCode`、`LubanError`、`ToolApprovalRequiredError`、`ApprovalRequest`（`lubanagent/tool/executor.py:14-21`、`lubanagent/tool/approval.py:18`、`lubanagent/mcp/client.py:15`；`ApprovalRequest` 定义本体在 `core/tool.py:40-64`） |
-| `lubanagent/extension`（extension 模块） | Python import | `RegisteredTool`、`Registry`、`default_registry`（`lubanagent/tool/executor.py:22`、`lubanagent/tool/mock.py:6`、`lubanagent/mcp/client.py:16`、`lubanagent/mcp/registry.py:7`、`lubanagent/mcp/server.py:10`）；业务 Tool 经 `extension.tool` 装饰器（`lubanagent/extension/decorators.py:37-69`）注册进 `Registry`，本模块的 `ToolExecutor`/`McpRegistry` 再从中读取 |
+| `lubanagent/extension`（extension 模块） | Python import | `RegisteredTool`、`Registry`、`default_registry`（`lubanagent/tool/executor.py:22`、`lubanagent/tool/mock.py:6`、`lubanagent/mcp/client.py:16`、`lubanagent/mcp/registry.py:7`、`lubanagent/mcp/server.py:10`）；业务 Tool 经 `extension.tool` 装饰器（`lubanagent/extension/decorators.py:40-74`）注册进 `Registry`，本模块的 `ToolExecutor`/`McpRegistry` 再从中读取 |
 | `lubanagent/persistence`（persistence 模块） | `McpServerStore.list()` 协议 | `mcp_servers` 表记录（`McpServerRow`，`lubanagent/persistence/models/misc.py:27-38`），经实现该 Protocol 的 Repository 注入 `McpRegistry(repository=...)` 供 `load_from_db()` 读取（`lubanagent/mcp/registry.py:12-17, 42-52`） |
 | 第三方 `mcp` SDK | Python import | 客户端 `ClientSession`、`stdio_client`、`streamablehttp_client` 等；服务端 `FastMCP`、`AuthSettings`、`AccessToken`、`ToolError`（`lubanagent/mcp/server.py:8-11`） |
 
@@ -228,7 +267,7 @@ McpRegistry.discover_tools(key, into)
 
 | 被影响方 | 触发接口 | 触发内容 |
 |---|---|---|
-| `lubanagent/runtime`（Agent Loop） | Python import | `runtime/agent_loop.py` 直接构造 `ToolExecutor`、`ApprovalManager`，并在人工确认场景动态构造带 `approval_handler=gate` 的新 `ToolExecutor`（`lubanagent/runtime/agent_loop.py:207, 230, 899-944`），是本模块最主要的消费方，实现"暂停 Run 等待审批、审批后恢复"的编排 |
+| `lubanagent/runtime`（Agent Loop） | Python import | `runtime/agent_loop.py` 直接构造 `ToolExecutor`、`ApprovalManager`，并在人工确认场景经 `_executor_for_run` 动态构造带 `approval_handler=gate` 的新 `ToolExecutor`（`lubanagent/runtime/agent_loop.py:56-57、230、1086-1131`），是本模块最主要的消费方，实现"暂停 Run 等待审批、审批后恢复"的编排；异步工具场景还消费 `preflight`/`launch` 拆分（见"行为·调用树"） |
 | `lubanagent/api`（API 层） | Python import | `api/routes/tools.py` 消费 `ToolResult`/`debug_tool`；`api/routes/approvals.py` 消费 `ApprovalRequest`；`api/deps.py` 提供 `ApprovalManagerDep` 依赖注入（`lubanagent/api/deps.py:12`） |
 | `lubanagent/app`（应用工厂） | Python import | `app/factory.py` 引入 `ApprovalManager` 并注入 `DbApprovalStore(db)` 构建应用级单例（`lubanagent/app/factory.py:32, 99`）——审批决定经 persistence 落库，跨进程可见可恢复 |
 | 外部 MCP Client（如 Claude Desktop 等） | 受信本地 stdio / 独立 Key 的 streamable-http | `create_mcp_server(export_tools=...)` 仅导出精确白名单本地工具并走 `ToolExecutor`；HTTP 无 `http_api_key` 拒绝启动/鉴权失败关闭，REST Key 不复用（`lubanagent/mcp/server.py:39-108`） |

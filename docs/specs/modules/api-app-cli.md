@@ -56,7 +56,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 | POST | `/v1/runs/{run_id}/cancel` | 取消 Run，返回 `{"cancelled": bool}` | Run 不存在 → 404 `RUN_NOT_FOUND`；存在但已终止/未注册取消句柄 → 正常返回 `cancelled=False`（`ctx.runtime.cancel()` 返回布尔而非抛错，来源：`runs.py:91-100`） |
 | POST | `/v1/runs/{run_id}/resume` | **SSE 流式**从最近 checkpoint 续跑非终态 Run，帧格式同创建 Run；实现同样先 `await anext(stream)` 预热首事件，把校验失败在流真正开始前抛出走统一错误映射（来源：`runs.py:105-118`） | Run 或 checkpoint 不存在 → 404 `RUN_NOT_FOUND`（无 checkpoint 时 `details.reason="no_checkpoint"`）；Run 已终态/本进程仍在活跃执行/子 Run → 422 `VALIDATION_ERROR`；装配关闭 checkpoint（`create_app(checkpointer=None)`）→ 500 `CONFIG_ERROR`；校验全部在流开始前抛出，流中途失败以 `RUN_FAILED`/`RUN_CANCELLED` SSE 事件呈现 |
 
-SSE 事件类型映射（供理解流式返回体裁，来源：`lubanagent/runtime/sse.py:10-27`）：仅 `SSE_EVENT_MAP` 覆盖的类型对外发送，共 15 条——`run.started`/`run.resumed`/`token.delta`/`tool.started`/`tool.finished`/`tool.failed`/`run.completed`/`run.failed`/`run.cancelled`/`tool.approval.requested`/`tool.approval.resolved`/`model.fallback`/`budget.warning`/`budget.exceeded`/`knowledge.no_hit`（知识全 miss 短路拒答；`run.resumed` 供 resume 续跑开始时发送，不重发 `run.started`）；未覆盖的内部 Trace 粒度事件（如 `STEP_*`/`MODEL_CALL_*`）默认不外发（`sse.py:34-41`）。事件格式：`event: {name}\ndata: {json}\n\n`，data 结构为 `{run_id, type, **payload}`（payload 经 `redact_value` 脱敏副本，`sse.py:40`）。
+SSE 事件类型映射（供理解流式返回体裁，来源：`lubanagent/runtime/sse.py:10-32`）：仅 `SSE_EVENT_MAP` 覆盖的类型对外发送，共 20 条——`run.started`/`run.resumed`/`token.delta`/`tool.started`/`tool.finished`/`tool.failed`/`run.completed`/`run.failed`/`run.cancelled`/`tool.approval.requested`/`tool.approval.resolved`/`model.fallback`/`budget.warning`/`budget.exceeded`/`knowledge.no_hit`（知识全 miss 短路拒答；`run.resumed` 供 resume 续跑开始时发送，不重发 `run.started`）+ `watchdog.alert`（外部 Watchdog 告警）+ `task.started`/`task.finished`/`task.failed`/`task.cancelled`（异步工具任务生命周期，`TOOL_ASYNC_ENABLED` 开启时产生）；未覆盖的内部 Trace 粒度事件（如 `STEP_*`/`MODEL_CALL_*`）默认不外发。事件格式：`event: {name}\ndata: {json}\n\n`，data 结构为 `{run_id, type, **payload}`（payload 经 `redact_value` 脱敏副本，`sse.py:40`）。
 
 #### models.py（`lubanagent/api/routes/models.py`）
 
@@ -73,6 +73,14 @@ SSE 事件类型映射（供理解流式返回体裁，来源：`lubanagent/runt
 |---|---|---|---|
 | GET | `/v1/tools` | 列出 Registry 已注册工具的 `ToolDescriptor` | 无 |
 | POST | `/v1/tools/{key}/test` | 在线测试工具：`debug_tool` 直接执行，**不经 Runtime**（不产生 Run/Trace），请求体为任意 JSON（`dict[str, Any] | None`） | 工具未注册 → `ctx.registry.get_tool(key)` 触发 `LubanError(TOOL_NOT_FOUND)` → 404（来源：`tools.py:21-22` 注释） |
+
+#### watchdog.py（`lubanagent/api/routes/watchdog.py`）—— 外部 Watchdog 告警查询
+
+| 方法 | 路径 | 说明 | 错误情况 |
+|---|---|---|---|
+| GET | `/v1/watchdog/alerts` | 最近告警留痕（进程内 deque，重启清零），返回 `list[WatchdogAlert{alert_id, run_id, reason, last_event_at, age_seconds, created_at}]`；`WATCHDOG_ENABLED=false`（默认）时服务未装配恒返回空数组（来源：`routes/watchdog.py:12-17`） | 无特殊错误（只读内存留痕，不查库） |
+
+判据与告警语义见 `watchdog.md` 模块文档。
 
 #### traces.py（`lubanagent/api/routes/traces.py`）
 

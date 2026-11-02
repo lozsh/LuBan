@@ -14,7 +14,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 ## 定位
 
-`knowledge-memory` 模块合并两个运行期可选的能力层子包：`lubanagent/knowledge/`（最小 RAG 管线 + 防错答守门）与 `lubanagent/memory/`（会话/摘要/长期三种记忆策略）。两者都是框架领地的一等能力（非分期功能），默认不启用，由 `AgentDefinition.knowledge`/`AgentDefinition.memory` 显式配置开关（`lubanagent/core/definition.py:35-49`），并经 `lubanagent/runtime/capabilities.py` 的 `prepare`/`finalize` 装配进 Agent 执行主流程。知识侧的守门能力（"可不答、不硬编"）由 `KnowledgeConfig` 三个字段承载：`score_threshold`（相关度阈值过滤）、`no_hit_fallback`（全 miss 短路拒答）、`max_age_days`（知识时效过滤），全部带默认值、存量 Agent 零行为变化（`lubanagent/core/definition.py:39-42`）。核心表：`knowledge_chunks`（知识切块+向量）、`knowledge_sources`（工作台托管知识源元数据，migration 0006）、`session_messages`（会话消息）、`session_summaries`（会话摘要）、`long_term_memories`（跨会话事实）。核心 Protocol/类：`KnowledgeConnector`（`lubanagent/extension/protocols.py:87-89`）、`KnowledgeStore`（`lubanagent/knowledge/store.py:44`）、`EmbeddingProvider`（`lubanagent/knowledge/embedding.py:20`）、`KnowledgeSourceManager`（`lubanagent/knowledge/manager.py:67`，工作台托管知识源全生命周期：上传落盘/切块入库/注册/重切/删除/检索测试）、`SessionMemory`/`SummaryMemory`/`LongTermMemory`（`lubanagent/memory/session.py:34`、`lubanagent/memory/summary.py:59`、`lubanagent/memory/long_term.py:11`）。用户领地示例实现见 `app/knowledge_sources/product_faq.py` 与 `app/knowledge_sources/project_docs.py`（部门项目问答范本知识源）。
+`knowledge-memory` 模块合并两个运行期可选的能力层子包：`lubanagent/knowledge/`（最小 RAG 管线 + 防错答守门）与 `lubanagent/memory/`（会话/摘要/长期三种记忆策略）。两者都是框架领地的一等能力（非分期功能），默认不启用，由 `AgentDefinition.knowledge`/`AgentDefinition.memory` 显式配置开关（`lubanagent/core/definition.py:34-56`），并经 `lubanagent/runtime/capabilities.py` 的 `prepare`/`finalize` 装配进 Agent 执行主流程。知识侧的守门能力（"可不答、不硬编"）由 `KnowledgeConfig` 三个字段承载：`score_threshold`（相关度阈值过滤）、`no_hit_fallback`（全 miss 短路拒答）、`max_age_days`（知识时效过滤），全部带默认值、存量 Agent 零行为变化（`lubanagent/core/definition.py:39-42`）。注入侧另有 Inline & Spill 预算两字段：`KnowledgeConfig.inline_budget_chars`（`definition.py:45`）与 `MemoryConfig.long_term_inline_budget_chars`（`definition.py:55`），均默认 `None` = 全量内联（旧行为逐字符不变）；启用后超预算条目降级为引用行（`kn:{chunk_id}`/`mem:{fact_id}`），模型用 `knowledge_read`/`memory_read` 伴生工具按需取全文（规划纯函数与读回工具属 runtime 模块，见 `lubanagent/runtime/context_budget.py:1`、`context_tools.py:1` 与 runtime 模块文档）。核心表：`knowledge_chunks`（知识切块+向量）、`knowledge_sources`（工作台托管知识源元数据，migration 0006）、`session_messages`（会话消息）、`session_summaries`（会话摘要）、`long_term_memories`（跨会话事实）。核心 Protocol/类：`KnowledgeConnector`（`lubanagent/extension/protocols.py:87-89`）、`KnowledgeStore`（`lubanagent/knowledge/store.py:44`）、`EmbeddingProvider`（`lubanagent/knowledge/embedding.py:20`）、`KnowledgeSourceManager`（`lubanagent/knowledge/manager.py:67`，工作台托管知识源全生命周期：上传落盘/切块入库/注册/重切/删除/检索测试）、`SessionMemory`/`SummaryMemory`/`LongTermMemory`（`lubanagent/memory/session.py:34`、`lubanagent/memory/summary.py:59`、`lubanagent/memory/long_term.py:21`）。用户领地示例实现见 `app/knowledge_sources/product_faq.py` 与 `app/knowledge_sources/project_docs.py`（部门项目问答范本知识源）。
 
 ## 接口契约
 
@@ -63,6 +63,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 | `list_chunks` | `async (source: str \| None = None, *, limit: int \| None = None) -> list[dict]` | 按 source、chunk_index 排序列出；`limit` 作用于排序后（L137-150）；dict 含 `created_at`（`_to_dict`，L26-35） |
 | `count_chunks` | `async (source: str \| None = None) -> int` | 按 source（None=全表）计数（L152-157） |
 | `search` | `async (embedding: list[float], *, source: str \| None = None, top_k: int = 5) -> list[dict]` | 全量读 + Python cosine 排序取 top_k，空库返回 `[]`（L168 docstring）；`top_k` 钳制到 `[1, MAX_SEARCH_TOP_K=100]`——0/负数按 1（原先会被切片静默吞掉全部结果），超大值按 100 截断，不抛错不吞结果（L38-41、165-198） |
+| `get_chunk` | `async (chunk_id: int) -> dict \| None` | 按主键取单个 chunk（`knowledge_read` 伴生工具的读回端）；不存在返回 `None`；返回与 `search` 同构的 dict（无 `score`，`embedding` 不返回——读回场景用不到）（`store.py:216-231`） |
 
 `lubanagent/knowledge/ingest.py`：
 
@@ -97,7 +98,7 @@ Registry 侧配套（`lubanagent/extension/registry.py`）：新增幂等 `unreg
 
 | 类/函数 | 签名 | 说明 |
 |---|---|---|
-| `SqlKnowledgeConnector`（L8） | `__init__(source, *, store, embedder)`；`async retrieve(query, top_k) -> list[Snippet]` | 实现 `KnowledgeConnector`，基于 `knowledge_chunks` 表 + Python cosine |
+| `SqlKnowledgeConnector`（L8） | `__init__(source, *, store, embedder)`；`async retrieve(query, top_k) -> list[Snippet]` | 实现 `KnowledgeConnector`，基于 `knowledge_chunks` 表 + Python cosine；返回 Snippet 的 metadata 在存量字段外追加 `chunk_index` 与 `chunk_id`（chunk 主键，Inline & Spill 引用 `kn:{chunk_id}` 的取回锚点，`retrieve.py:25-30`）——走 metadata 而非 Snippet 字段，自定义 connector/存量调用方零变化 |
 | `format_snippets_for_prompt` | `(snippets: list[Snippet]) -> str` | 输出 `"[1] content...\n[2] ..."` 编号格式（L33） |
 
 `lubanagent/memory/session.py`：
@@ -120,8 +121,9 @@ Registry 侧配套（`lubanagent/extension/registry.py`）：新增幂等 `unreg
 
 | 类/函数 | 方法/签名 | 说明 |
 |---|---|---|
-| `LongTermMemory`（L11） | `__init__(db, *, capacity: int \| None = None)`；`async remember(agent_key, user_key, fact) -> int`；`async recall(agent_key, user_key, *, limit=20) -> list[str]`；`async forget(agent_key, user_key, fact_id) -> bool` | 跨会话事实读写，与 `session_id` 无关（L12 docstring）；`forget` 限定 agent+user 防越权（L90）；容量控制（风险 R10）：`capacity` 缺省取 `Settings.long_term_memory_capacity`（默认 1000，env `LONG_TERM_MEMORY_CAPACITY`），`remember` 写入后同 agent+user 维度超限即淘汰最旧（`_evict_overflow`，L34-64，`created_at`/`id` 正序删 overflow 条）——长期运行表不再无限增长，存量不超上限时零感知 |
-| `format_facts_for_prompt` | `(facts: list[str]) -> str` | 格式化 system prompt 尾部片段；空列表 → `""`（L61-63） |
+| `MemoryEntry`（L13-18，frozen dataclass） | `fact_id: int`、`fact: str` | 一条带 id 的事实（注入预算场景：id 作引用供 `memory_read` 取回全文） |
+| `LongTermMemory`（L21） | `__init__(db, *, capacity: int \| None = None)`；`async remember(agent_key, user_key, fact) -> int`；`async recall(agent_key, user_key, *, limit=20) -> list[str]`；`async recall_entries(agent_key, user_key, *, limit=20) -> list[MemoryEntry]`；`async get(agent_key, user_key, fact_id) -> str \| None`；`async forget(agent_key, user_key, fact_id) -> bool` | 跨会话事实读写，与 `session_id` 无关（L22 docstring）；`recall` 现基于 `recall_entries` 映射（行为不变，L76-79）；`recall_entries` 是带 id 变体（排序语义与 recall 一致：`created_at desc, id desc` 取最近 N 条后反转为正序，L81-105）；`get` 按 id 取单条全文（`memory_read` 伴生工具的读回端），**限定 agent+user 双匹配防越权**——id 存在但归属不符同样返回 `None`（L107-113）；`forget` 限定 agent+user 防越权（L115-125）；容量控制（风险 R10）：`capacity` 缺省取 `Settings.long_term_memory_capacity`（默认 1000，env `LONG_TERM_MEMORY_CAPACITY`），`remember` 写入后同 agent+user 维度超限即淘汰最旧（`_evict_overflow`，L44-74，`created_at`/`id` 正序删 overflow 条）——长期运行表不再无限增长，存量不超上限时零感知 |
+| `format_facts_for_prompt` | `(facts: list[str]) -> str` | 格式化 system prompt 尾部片段；空列表 → `""`（L128-133） |
 
 ## 数据模型
 
@@ -277,11 +279,14 @@ prepare(definition, user_input, ...)  # lubanagent/runtime/capabilities.py:82
         ├── [score_threshold > 0] 丢弃 cosine < score_threshold 的 snippet
         └── [max_age_days 非 None] 丢弃 metadata.ingested_at 超龄 snippet（无时间戳/解析失败保留，兼容存量）
     └── [过滤后 snippets 非空]
-        ├── [cite=True] _KNOWLEDGE_HEADER_CITE + format_snippets_for_prompt(snippets)
-        │   # 强引用约束头（"只允许基于以下编号片段作答……无法从片段得出时必须直接回答不知道……引用来源时使用 [n] 编号"）+ "[1] ...\n[2] ..." 编号（capabilities.py:31-35）
-        └── [cite=False] _KNOWLEDGE_HEADER_PLAIN + 纯片段罗列（无编号无约束句，capabilities.py:36、162-163）
-    └── [过滤后 snippets 为空 且 no_hit_fallback 非 None]
-        └── CapabilityContext.knowledge_no_hit = True  # 且不注入知识 suffix；agent_loop 据此短路拒答（见 runtime 模块文档）
+        ├── [inline_budget_chars=None（默认）] cite=True 强引用约束头 + format_snippets_for_prompt 编号 / cite=False 纯片段
+        │   # 强引用约束头（"只允许基于以下编号片段作答……无法从片段得出时必须直接回答不知道……引用来源时使用 [n] 编号"）+ "[1] ...\n[2] ..." 编号（capabilities.py:225-231）
+        ├── [预算启用（Inline & Spill）] make_item(f"kn:{chunk_id}", content) → plan_inline(items, budget) → format_knowledge_block  # capabilities.py:233-268
+        │   ├── 无 chunk_id（自定义 connector 未透传 metadata.chunk_id）的条目强制内联不 spill（不可读回的内容不能悄悄丢，capabilities.py:247-251）
+        │   ├── spilled 条目出引用行（"[n] (未内联) 摘要…〔ref: kn:{id}，用 knowledge_read 获取全文〕"）
+        │   └── [plan.spilled 非空] extra_tools += knowledge_read（allowed_sources=definition.knowledge.sources，capabilities.py:252-270）
+        └── [过滤后 snippets 为空 且 no_hit_fallback 非 None]
+            └── CapabilityContext.knowledge_no_hit = True  # 且不注入知识 suffix；agent_loop 据此短路拒答（见 runtime 模块文档）
 ```
 
 #### 记忆策略：会话记忆读写
@@ -322,13 +327,17 @@ finalize(...)
 #### 记忆策略：长期记忆读写
 
 ```
-prepare(...)
+prepare(...)  # capabilities.py:173-199
 └── [use_long_term] memory.long_term=True 且 user_key 非空
-    └── LongTermMemory.recall(definition.key, user_key)  # 最近 limit=20 条，正序
-        └── format_facts_for_prompt(facts) → 非空则拼入 suffix（"已知用户信息：..."）
+    ├── [long_term_inline_budget_chars=None（默认）] LongTermMemory.recall(definition.key, user_key)  # 最近 limit=20 条，正序（旧行为：全量注入）
+    │   └── format_facts_for_prompt(facts) → 非空则拼入 suffix（"已知用户信息：..."）
+    └── [预算启用（Inline & Spill）] recall_entries(...) → make_item(f"mem:{fact_id}", fact, budget) → plan_inline
+        ├── format_memory_block 出块：inline 条目 "- {fact}"，spilled 条目 "- (摘要) {preview}…〔ref: mem:{id}，用 memory_read 获取全文〕"
+        └── [plan.spilled 非空] extra_tools += memory_read（限定 definition.key + user_key，capabilities.py:182-199）
 
 # 写入是显式调用（非 Run 生命周期自动触发）：
 LongTermMemory.remember(agent_key, user_key, fact)  # 由业务代码/工具主动调用写入事实
+LongTermMemory.get(agent_key, user_key, fact_id)    # 按 id 取单条全文（memory_read 读回端；限定 agent+user 防越权）
 LongTermMemory.forget(agent_key, user_key, fact_id)  # 限定 agent+user 删除，防越权
 ```
 
@@ -352,7 +361,9 @@ LongTermMemory.forget(agent_key, user_key, fact_id)  # 限定 agent+user 删除�
 - 摘要记忆触发条件：`SummaryMemory.maybe_compress` 在"未压缩消息数（id > 既有 upto_message_id）> window_size"时才触发一次压缩，已压缩消息（`id <= upto_message_id`）不删除、不重复计数（来源：`lubanagent/memory/summary.py:60`、`:72-92`）。摘要调用 LLM 发生在 DB 事务之外（来源：`lubanagent/memory/summary.py:112` 注释）。
 - `memory.summary=True` 但未提供 `summarizer` 实例：`prepare` 记 warning 退化为纯 `SessionMemory.history`；`finalize` 同样记 warning 并跳过压缩，不抛异常（来源：`lubanagent/runtime/capabilities.py:81-85`、`:166-169`；验收用例 `test_summary_without_summarizer_degrades_gracefully`）。
 - `finalize` 中记忆回写（`SessionMemory.append`/`SummaryMemory.maybe_compress`）异常被捕获仅记日志，不影响 Run 终态（"Run 已终态，记忆是附属"）（来源：`lubanagent/runtime/capabilities.py:174-175`；验收用例 `test_finalize_failure_does_not_block_run`）。
-- `LongTermMemory.recall` 默认 `limit=20`，按 `created_at desc, id desc` 取最近 N 条后反转为正序返回；`forget` 删除时限定 `agent_key`+`user_key` 双重匹配，防止跨 Agent/跨用户越权删除（来源：`lubanagent/memory/long_term.py:66-88`、`:90-100`）。容量上限（风险 R10 修复）：构造参数 `capacity`（默认 `Settings.long_term_memory_capacity=1000`，env `LONG_TERM_MEMORY_CAPACITY`），`remember` 超限即淘汰同 agent+user 维度最旧条目（来源：`long_term.py:14-22、34-64`）；无 TTL/过期机制，`long_term_memories` 表无过期字段，保留至显式 `forget` 或容量淘汰。
+- `LongTermMemory.recall` 默认 `limit=20`，按 `created_at desc, id desc` 取最近 N 条后反转为正序返回（现基于 `recall_entries` 映射，行为不变）；`get`/`forget` 均限定 `agent_key`+`user_key` 双重匹配，防止跨 Agent/跨用户越权读/删（来源：`lubanagent/memory/long_term.py:76-79`、`:81-105`、`:107-113`、`:115-125`）。容量上限（风险 R10 修复）：构造参数 `capacity`（默认 `Settings.long_term_memory_capacity=1000`，env `LONG_TERM_MEMORY_CAPACITY`），`remember` 超限即淘汰同 agent+user 维度最旧条目（来源：`long_term.py:28-32、44-74`）；无 TTL/过期机制，`long_term_memories` 表无过期字段，保留至显式 `forget` 或容量淘汰。
+- **Inline & Spill 注入预算（默认关，Agent 定义即门控）**：`KnowledgeConfig.inline_budget_chars` / `MemoryConfig.long_term_inline_budget_chars` 为 `None`（默认）时走原路径全量内联，存量 Agent 逐字符不变（来源：`lubanagent/core/definition.py:43-45、53-55`、`lubanagent/runtime/capabilities.py:176-180、224-231`）。预算启用时：超预算条目**整条**降级为引用行（不截半条防幻觉）、无 `chunk_id` 的知识条目强制内联不 spill；`knowledge_read`/`memory_read` 伴生工具仅在 spill 非空时注入 `extra_tools`（来源：`lubanagent/runtime/context_budget.py:44-60`、`lubanagent/runtime/capabilities.py:198-199、247-251、269-270`）。规划/格式化是纯函数（`lubanagent/runtime/context_budget.py:1`），读回工具的越权防线见下条。
+- **伴生工具越权防线（不泄露存在性）**：`knowledge_read`（`lubanagent/runtime/context_tools.py:18-50`）按 ref 取 `KnowledgeStore.get_chunk`（`lubanagent/knowledge/store.py:216-231`），source 不在 `allowed_sources`（= `definition.knowledge.sources`）视同不存在；`memory_read`（`context_tools.py:53-80`）经 `LongTermMemory.get` 限定 agent+user——id 存在但归属不符同样返回 `None`。越权/不存在/非法 id 一律返回 `{"error":"not_found"}`，不区分"不存在"与"无权访问"（来源：`context_tools.py:15、24-31、58-66`）。引用协议：`kn:{chunk_id}`（`SqlKnowledgeConnector.retrieve` 经 metadata 透传 `chunk_id`，`lubanagent/knowledge/retrieve.py:25-30`，存量 connector 零变化）/ `mem:{fact_id}`（`recall_entries` 返回带 id 条目，`long_term.py:81-105`）。
 - 长期记忆的注入前提是 `use_long_term = memory_cfg.long_term and bool(user_key)`——`long_term=True` 但调用方未提供 `user_key`（如 `runtime.run` 未配置 `user_key_fn`）则跳过注入，不报错（来源：`lubanagent/runtime/capabilities.py:67`、`:92`；验收用例 `test_long_term_memory_injected_with_user_key`）。
 - system prompt 尾部拼接顺序固定：长期记忆 → 知识片段 → Skill 元数据（`suffix_parts` 依次 append，来源：`lubanagent/runtime/capabilities.py:131-186`），且遵循"动态后置、稳定前缀不变"的 KV-cache 语义（来源：同文件 L5-6 模块 docstring）。
 - `SessionMessageRow.role` 只接受 `user`/`assistant`/`system`/`tool` 四种，`row_to_message` 遇未知 role 抛 `LubanError(INTERNAL_ERROR)`；`tool` 角色回放时 `tool_call_id` 以空串占位，标注"回放待 Run Trace 重建"（来源：`lubanagent/memory/session.py:17-31`）。
@@ -366,7 +377,7 @@ LongTermMemory.forget(agent_key, user_key, fact_id)  # 限定 agent+user 删除�
 | Snippet | Protocol 返回的知识检索片段结构：`content`/`source`/`score`/`metadata` 四字段（来源：`lubanagent/extension/protocols.py:78-84`） |
 | EmbeddingProvider | Protocol，定义 `async embed(texts) -> list[list[float]]`，Embedding 能力的统一抽象，两个内置实现为 `OpenAICompatibleEmbedding` 与 `FakeEmbedding`（来源：`lubanagent/knowledge/embedding.py:19-21`） |
 | FakeEmbedding | 零密钥场景下的确定性 hash 向量兜底实现，同文本产出同向量，关键词重叠越多 cosine 越高；默认 dim=2048 且滤除 `_STOPWORDS` 高频功能字（两个去噪设计让守门阈值在文档级语料下可校准）；仅供测试/演示，不承诺生产检索质量（来源：`lubanagent/knowledge/embedding.py:61-85`） |
-| KnowledgeStore | knowledge_chunks 表的存取封装类；`write_chunks` 在同源事务内核对待发布预留行 id 并校验配额后替换/追加，可同步更新托管行重切参数；`add_chunks`/`delete_source` 拒绝待发布源；`search` 用全量读 + Python cosine 排序（向量存 DB JSON，非专用向量库；来源：`lubanagent/knowledge/store.py:44-214`） |
+| KnowledgeStore | knowledge_chunks 表的存取封装类；`write_chunks` 在同源事务内核对待发布预留行 id 并校验配额后替换/追加，可同步更新托管行重切参数；`add_chunks`/`delete_source` 拒绝待发布源；`search` 用全量读 + Python cosine 排序；`get_chunk` 按主键取单块（knowledge_read 读回端）（向量存 DB JSON，非专用向量库；来源：`lubanagent/knowledge/store.py:44-231`） |
 | KnowledgeSourceManager | 工作台托管知识源全生命周期管理类（创建落盘/切块入库/注册/重切/删除/检索测试/重启恢复注册），由 `lubanagent/app/factory.py` 装配挂 `app.state.knowledge_manager`，路由层经鸭子类型访问（来源：`lubanagent/knowledge/manager.py:67`） |
 | 托管源（managed）/ 内置源（registry-only） | 两种知识源形态：托管源 = 经 `POST /v1/knowledge/sources` 创建、元数据落 `knowledge_sources` 表、文件落盘可重切可删；内置源 = 代码种子（project-docs/product-faq），只在 Registry 注册、参数不可改不可删，列表时以 `managed=False` 合并展示（来源：`lubanagent/knowledge/manager.py:116-141`） |
 | SqlKnowledgeConnector | `KnowledgeConnector` 的框架内置实现，组合 `KnowledgeStore` + `EmbeddingProvider` 完成 embed→search→组装 Snippet（来源：`lubanagent/knowledge/retrieve.py:8`） |
@@ -377,6 +388,9 @@ LongTermMemory.forget(agent_key, user_key, fact_id)  # 限定 agent+user 删除�
 | CapabilityContext | `capabilities.prepare` 的产出 dataclass：`system_suffix`/`extra_tools`/`history`/`knowledge_no_hit`（+ 守门观测 `knowledge_hits_raw`/`knowledge_hits_kept` 过滤前后条数，随 KNOWLEDGE_NO_HIT 事件外发）字段，供 `agent_loop` 注入上下文与工具增量、触发知识全 miss 短路拒答（来源：`lubanagent/runtime/capabilities.py:69-83`） |
 | 防错答守门（score_threshold / no_hit_fallback / max_age_days） | KnowledgeConfig 三个可选字段构成的"可不答、不硬编"防线：阈值过滤弱相关片段、时效过滤超龄 chunk、全 miss 短路拒答；全部带默认值，未配置时零行为变化（来源：`lubanagent/core/definition.py:39-42`、`lubanagent/runtime/capabilities.py:40-66`） |
 | knowledge_no_hit | 知识检索经守门过滤后全 miss 且配置了 `no_hit_fallback` 时 `CapabilityContext` 置位的标志；`agent_loop` 据此跳过模型执行直接以兜底话术作答，emit `KNOWLEDGE_NO_HIT` 事件（来源：`lubanagent/runtime/capabilities.py:77-79`、`agent_loop.py:410-425`） |
+| MemoryEntry | `LongTermMemory.recall_entries` 返回的带 id 事实条目（`fact_id`/`fact`），id 是 Inline & Spill 引用 `mem:{fact_id}` 的锚点（来源：`lubanagent/memory/long_term.py:13-18`） |
+| chunk_id 透传 | `SqlKnowledgeConnector.retrieve` 在 Snippet.metadata 追加 `chunk_index` 与 `chunk_id`（chunk 表主键），供 Inline & Spill 生成 `kn:{chunk_id}` 引用；走 metadata 而非 Snippet 字段，自定义 connector 与存量调用方零变化（来源：`lubanagent/knowledge/retrieve.py:25-30`） |
+| knowledge_read / memory_read | Inline & Spill 的读回伴生工具（定义在 runtime 模块 `lubanagent/runtime/context_tools.py:18-80`）：按 `kn:{chunk_id}`/`mem:{fact_id}` 引用取 spill 条目全文，越权一律 not_found 不泄露存在性；仅对应注入预算启用且 spill 非空时由 capabilities 注入（跨模块语义见 glossary「Inline & Spill」） |
 
 ## 上下游
 

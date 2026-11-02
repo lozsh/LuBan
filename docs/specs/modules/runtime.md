@@ -30,21 +30,25 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 | 类/函数 | 签名要点 | 说明 | 错误情况 |
 |---|---|---|---|
-| `AgentRuntime.__init__` | `db, settings, registry=None, observability=None, approval_manager=None, executor=None, skill_registry=None, summarizer=None, user_key_fn=None, mcp_registry=None, checkpointer=None` | 组装一次运行期所需的全部依赖（`lubanagent/runtime/agent_loop.py:211-250`）；`checkpointer`（`LubanCheckpointer \| None`）非空时 prebuilt agent 以 `create_react_agent(model, tools, checkpointer=...)` 编译并在 config 带 `configurable.thread_id = f"run-{run_id}"`，每个节点边界由 LangGraph 落 checkpoint（复用 `checkpoints` 表，零迁移）；为 `None` 时零 checkpoint 写入、行为与未启用版完全一致 | 无（纯装配，不做 I/O） |
+| `AgentRuntime.__init__` | `db, settings, registry=None, observability=None, approval_manager=None, executor=None, skill_registry=None, summarizer=None, user_key_fn=None, mcp_registry=None, checkpointer=None, async_tools=None` | 组装一次运行期所需的全部依赖（`lubanagent/runtime/agent_loop.py:211-250`）；`checkpointer`（`LubanCheckpointer \| None`）非空时 prebuilt agent 以 `create_react_agent(model, tools, checkpointer=...)` 编译并在 config 带 `configurable.thread_id = f"run-{run_id}"`，每个节点边界由 LangGraph 落 checkpoint（复用 `checkpoints` 表，零迁移）；为 `None` 时零 checkpoint 写入、行为与未启用版完全一致；`async_tools: bool \| None` 是异步工具开关（`None` 读 `Settings.tool_async_enabled` 即 env `TOOL_ASYNC_ENABLED`，默认 False；关闭时 `execution_mode="async"` 的工具按 sync 路径执行，零行为变化，`agent_loop.py:226、232-234`） | 无（纯装配，不做 I/O） |
 | `AgentRuntime.stream(request: RunRequest) -> AsyncIterator[TraceEvent]` | 流式执行；终态必出 `RUN_COMPLETED`/`RUN_FAILED`/`RUN_CANCELLED` 之一（`agent_loop.py:292-333`） | 主入口，SSE/图节点/多 Agent 委派均走此方法 | 装载定义失败直接 `raise LubanError`（不产生 Run 记录，见边界规则）；大脑解析 `CapabilityMismatchError` 被捕获转成 `RUN_FAILED` 事件后 `return`（`agent_loop.py:305-315`） |
 | `AgentRuntime.stream_resume(run_id: str) -> AsyncIterator[TraceEvent]` | 从最近 checkpoint 续跑非终态 Run；整体在 per-run `asyncio.Lock`（常驻字典，锁与 checkpoint 生命周期同界）内执行；校验与续跑语义见行为章节（`agent_loop.py:361-441`） | 崩溃/中断恢复入口，HTTP `POST /v1/runs/{run_id}/resume` 的直接后端；事件协议与 `stream()` 一致，终态收束共用同一代码路径 | 校验失败在流开始前 `raise LubanError`：run 不存在 → `RUN_NOT_FOUND`；终态（COMPLETED/FAILED/CANCELLED）→ `VALIDATION_ERROR`；本进程活跃（cancellation registry 在册）→ `VALIDATION_ERROR`；子 Run（`parent_run_id` 非空）→ `VALIDATION_ERROR`（生命周期归父编排）；无 checkpoint → `RUN_NOT_FOUND` + `details={"reason": "no_checkpoint"}`；本 Runtime 未注入 checkpointer → `CONFIG_ERROR`（`agent_loop.py:367-407`） |
 | `AgentRuntime.run(request: RunRequest) -> Run` | 非流式：内部消费 `stream()` 后从 DB 读回终态 `Run`（`agent_loop.py:335-348`） | 供图节点 (`graph/runner.py`)、多 Agent 委派 (`multiagent/team.py`、`multiagent/supervisor.py`) 同步取子 Run 结果 | `Run` 未落库（启动前失败）时 `raise LubanError(ErrorCode.RUN_NOT_FOUND, ...)`（`agent_loop.py:343-347`） |
 | `AgentRuntime.cancel(run_id: str) -> bool` | 委托 `CancellationRegistry.cancel`（`agent_loop.py:350-351`） | 未找到对应 run_id 的 token 返回 `False`，不抛异常；resume 续跑前会重新注册取消 token，续跑中可同样取消 | 无异常路径 |
 | `RunRequest`（frozen dataclass） | `agent_key, user_input, session_id=None, user_id=None, version=None, variables=None, history=None, run_id=None, parent_run_id=None, budget_guard=None, instructions_override=None`（`agent_loop.py:131-143`） | Run 请求载体；`parent_run_id`+`budget_guard` 是子 Run 预算继承/编排关联的契约字段（§10.6）；`user_id` 为透传观测标签（无用户管理语义） | 无校验逻辑本身，字段合法性在 `_load_definition`/`_check_runnable` 校验 |
 | `BudgetGuard(budget, *, timeout_seconds, pricing=None)` | 三道闸：token / cost / 时长（`budget_guard.py`） | `check_time()`：过 deadline 抛 `RunTimeoutError`；`consume(input_tokens, output_tokens, pricing=_UNSET) -> float`：累计用量+按当次单价计费并返回本次成本（不判定限额；pricing 缺省回落构造期单价，显式 None = 本次调用无单价）；`enforce()`：token/cost 撞线抛 `BudgetExceededError`；`usage`/`cost`（共享池累计值）/`max_cost`/`pricing_missing` 只读属性 | `check_time` → `RunTimeoutError`；`enforce` → `BudgetExceededError`（token 或 cost 任一超限） |
-| `CancellationToken` | `cancel()`、`cancelled` 属性、`throw_if_cancelled()`（`cancellation.py:8-23`） | 协作式取消：`threading.Event` 承载标志位，事件循环检查点主动调用 `throw_if_cancelled` | `throw_if_cancelled` → `RunCancelledError`（已取消时） |
+| `CancellationToken` | `cancel()`、`cancelled` 属性、`throw_if_cancelled()`、`subscribe_async() -> asyncio.Event`（`cancellation.py:8-32`） | 协作式取消：`threading.Event` 承载标志位，事件循环检查点主动调用 `throw_if_cancelled`；`subscribe_async`（`cancellation.py:25-32`）领一个 asyncio 等待器供后台任务监听 Run 取消（`cancel()` 时全部置位；已取消时返回的等待器直接置位——补领语义不漏信号），异步工具监督协程是其消费方 | `throw_if_cancelled` → `RunCancelledError`（已取消时） |
 | `CancellationRegistry` | `create(run_id) -> CancellationToken`（幂等）、`cancel(run_id) -> bool`、`discard(run_id)`、`is_active(run_id)`（`cancellation.py:26-56`） | run_id 到 token 的注册表，`threading.Lock` 保护；`is_active` 供 `stream_resume` 做"本进程活跃拒绝"检查 | 无 |
 | `ContextBuilder.build_system_prompt(definition, *, variables=None) -> str` | role 段 + instructions 段拼接，`variables` 与 `definition.prompt_variables` 合并后按占位符正则渲染：**整个花括号内恰为一个标识符且与已声明变量同名才替换**（R13：原 `format_map` 会把指令里的 JSON 字面量当模板字段炸掉 Run）；未声明占位符与 JSON 字面量原样保留（`context_builder.py:16-33`） | KV-cache 稳定前缀的生产者 | 无异常 |
 | `ContextBuilder.build_messages(*, history, user_input, window_size) -> list[BaseMessage]` | `history` 按 `window_size` 截尾（保最新）后追加一条 `HumanMessage`（append-only）（`context_builder.py:27-37`） | 无能力件（记忆/知识/Skill）时的默认消息组装路径 | 无异常 |
 | `capabilities.prepare(definition, *, user_input, session_id, user_key, db, registry, skill_registry=None, summarizer=None) -> CapabilityContext` | 按 `definition` 配置逐项装配记忆/知识/Skill，全部默认关闭、显式 early-return（`capabilities.py:82-193`）；知识检索结果经守门过滤（阈值/超龄），过滤后全 miss 且配置 `no_hit_fallback` 时置 `knowledge_no_hit=True` | 供 `agent_loop._execute` 在"上下文组装前"调用 | 知识源未注册 → `raise LubanError(ErrorCode.CONFIG_ERROR, ...)`（`capabilities.py:144-149`，唯一显式抛错路径） |
 | `capabilities.finalize(definition, *, session_id, run_id, user_input, output, db, summarizer=None) -> None` | Run 收尾回写会话/摘要记忆（`capabilities.py:196-229`）；知识全 miss 短路时 `output` 为兜底话术，照常作为 assistant 消息回写 | 供 `agent_loop._execute` 在"Run 收尾后"调用 | 内部捕获全部异常仅记日志，不向上抛（`capabilities.py:228-229`） |
-| `sse_stream(events: AsyncIterator[TraceEvent]) -> AsyncIterator[str]` | 只外发 `SSE_EVENT_MAP` 覆盖的事件类型，`STEP_*`/`MODEL_CALL_*` 等内部粒度事件默认不外发（`sse.py:10-26`）；外发帧 payload 先经 `redact_value` 脱敏（纵深防御，`sse.py:33-40`） | `api/routes/runs.py` 直接用它包装 `AgentRuntime.stream()` 的输出 | 无异常，`continue` 跳过未映射类型 |
-| `format_sse(event: str, data: dict) -> str` | 生成一帧 `event: xxx\ndata: {...}\n\n` 文本（`sse.py:27-28`） | SSE 协议底层拼帧函数 | 无 |
+| `sse_stream(events: AsyncIterator[TraceEvent]) -> AsyncIterator[str]` | 只外发 `SSE_EVENT_MAP` 覆盖的事件类型，`STEP_*`/`MODEL_CALL_*` 等内部粒度事件默认不外发（`sse.py:9-32`）；外发帧 payload 先经 `redact_value` 脱敏（纵深防御，`sse.py:38-46`） | `api/routes/runs.py` 直接用它包装 `AgentRuntime.stream()` 的输出 | 无异常，`continue` 跳过未映射类型 |
+| `format_sse(event: str, data: dict) -> str` | 生成一帧 `event: xxx\ndata: {...}\n\n` 文本（`sse.py:35-36`） | SSE 协议底层拼帧函数 | 无 |
+| `AsyncToolRunner(*, max_concurrent: int = 8)` | `start(*, run_id, registered, validated_args, executor, ctx, emit, step_index, token) -> AsyncTaskRecord \| None`、`get(task_id)`、`stop(task_id) -> bool`、`async cancel_all(*, reason, emit) -> list[str]`、`snapshot(task_id) -> dict \| None`（`async_tools.py:58-244`） | per-run 异步工具任务登记处（单 Run 生命周期，不持久化）：`start` spawn 后台监督协程（并发满 8 返回 `None` 由调用方回喂错误，`async_tools.py:83-86`）、task_id 确定性自增 `task-1`/`task-2`（可测性前提：FakeLLM 剧本可静态写死参数，`async_tools.py:87-93`）、`cancel_all` 取消未收任务并等监督协程收敛、返回 abandoned（模型从未收取结果）的 task_id 列表（`async_tools.py:121-137`）；监督协程 `_supervise`（`async_tools.py:139-228`）只发 `TOOL_TASK_*` 事件、绝不写 step_state（单写者原则：主循环协程独占，`async_tools.py:59-64`） | 无异常路径（内部消化 `CancelledError` 转 cancelled 记录） |
+| `make_task_result_tool(runner) / make_task_stop_tool(runner) -> RegisteredTool` | 伴生工具工厂（`async_tools.py:247-296`） | `task_result(task_id)`：running 返回运行态（模型可等待/放弃），终态返回结果并标记 collected；进程重启后 registry 为空返回 `{"status":"not_found"}`（如实降级，`async_tools.py:250-258`）。`task_stop(task_id)`：终止 running 任务，已结束返回 `stopped=false`（`async_tools.py:278-283`）。均 `RiskLevel.LOW`、命名冲突由 `agent_loop._dedupe_tool` 改名 `luban:<key>`（`agent_loop.py:1133-1141`） | 无 |
+| `context_budget`（纯函数模块，`context_budget.py`） | `make_item(key, text, *, budget) -> InlineItem`、`plan_inline(items, budget) -> InlinePlan`、`format_knowledge_block(items, plan, *, cite, read_tool_key)`、`format_memory_block(items, plan, *, read_tool_key)`；`InlineItem{key, text, preview}` / `InlinePlan{inline, spilled}`（`context_budget.py:15-41、44-60、63-117`） | 上下文注入预算的 Inline & Spill 规划与格式化（纯函数，不触 DB/网络）：`make_item` 对巨型条目（单独就超预算）取头部 60%+尾部 20% 截断 preview，常规条目取前 120 字符（`context_budget.py:10-12、32-41`）；`plan_inline` 逐条累加分配预算、放不下**整条** spill（不截半条防幻觉），`budget=None` 全部 inline（旧行为，`context_budget.py:44-60`）；spilled 条目输出引用行（`kn:{chunk_id}`/`mem:{fact_id}`）+ 末尾使用说明 | 无异常 |
+| `make_knowledge_read_tool(store, allowed_sources) / make_memory_read_tool(db, agent_key, user_key) -> RegisteredTool`（`context_tools.py:18-50、53-80`） | 伴生工具：按 `ref_id`（`"kn:12"`/`"mem:3"` 或裸数字）取回 spill 条目全文 | Inline & Spill 的读回端（链式召回）：`knowledge_read` 经 `KnowledgeStore.get_chunk` 取 chunk 全文且 source 不在 `allowed_sources` 视同不存在；`memory_read` 经 `LongTermMemory.get` 限定 agent+user 防越权；**越权/不存在一律 `{"error":"not_found"}`（不泄露存在性）**（`context_tools.py:15、21-31、56-66`）。仅随注入预算启用、且仅 spill 非空时由 capabilities 注入 extra_tools（`capabilities.py:198-199、269-270`） | 无异常（错误收敛为 not_found 返回值） |
 
 ## 数据模型
 
@@ -183,13 +187,19 @@ AgentRuntime.stream(request)
     │   ├── [cap_ctx.system_suffix] 追加到 system_prompt 尾部  # KV-cache: 动态内容后置
     │   ├── 组装 messages：SystemMessage? + (cap_ctx.history ?? ContextBuilder.build_messages(...)) + HumanMessage
     │   └── create_chat_model(resolution.definition)  # lubanagent.model 工厂
+    │   ├── 6b. 异步工具准备（默认关）  # agent_loop.py:711-727
+    │   │   └── [开关开 且 definition.tools 含 execution_mode="async" 的工具]
+    │   │       ├── async_runner = AsyncToolRunner()  # per-run 登记处
+    │   │       ├── registered_tools += task_result/task_stop 伴生工具（_dedupe_tool 防命名冲突）
+    │   │       └── async_guidance 追加到 system prompt 尾部（使用指引：task_id 收取/终止约定）
     ├── 7. 工具桥接
     │   ├── _executor_for_run(run_id, run, emit)  # 有 ApprovalManager 时包一层审批 gate（WAITING_APPROVAL 状态切换）
     │   └── definition.tools + cap_ctx.extra_tools 逐个 _bridge_tool(...) → StructuredTool
     │       └── bridge(**kwargs)  # 实际工具调用体
     │           ├── emit TOOL_CALL_STARTED
     │           ├── _call_hooks("pre_tool", ctx, descriptor, kwargs)
-    │           ├── executor.execute(registered, kwargs, ctx)  # ToolExecutor（tool 模块）
+    │           ├── [async 工具：开关开 + execution_mode="async"] executor.preflight（审批前置）→ async_runner.start 后台 spawn → emit TOOL_TASK_ACCEPTED → 返回占位 {"status":"started","task_id"}（agent_loop.py:1180-1242，详见 tool-mcp 模块文档调用树）
+    │           ├── [sync 路径（存量）] executor.execute(registered, kwargs, ctx)  # ToolExecutor（tool 模块）
     │           ├── emit TOOL_CALL_COMPLETED / TOOL_CALL_FAILED
     │           └── _call_hooks("post_step", ctx, step)
     ├── 8. 循环执行（LangGraph prebuilt agent）
@@ -210,8 +220,9 @@ AgentRuntime.stream(request)
     ├── [异常收敛]  # GraphRecursionError / BudgetExceededError / RunTimeoutError / RunCancelledError / asyncio.CancelledError / LubanError / Exception → outcome
     ├── event_stream.aclose()  # 异常出圈时取消在途工具调用，避免子 Run 变孤儿任务
     ├── 9-11. 收尾
+    │   ├── [async_runner 非空] abandoned_tasks = await async_runner.cancel_all(reason="run_finalized", emit=emit)  # 9a：取消未收任务并等监督协程收敛（TOOL_TASK_CANCELLED 先于终态事件；agent_loop.py:967-976）
     │   ├── [extra_event] emit(extra_event)  # 目前仅 BUDGET_EXCEEDED
-    │   ├── _finalize(...)  # TraceWriter.finish_run + record_cost + SafeBackend.end_trace + drain；返回终态 TraceEvent
+    │   ├── _finalize(..., extra_payload={"abandoned_tasks": [...]} 若非空)  # TraceWriter.finish_run + record_cost + SafeBackend.end_trace + drain；返回终态 TraceEvent（agent_loop.py:984-997、1046、1062-1063）
     │   ├── capabilities.finalize(...)  # 会话/摘要记忆回写，内部消化异常
     │   ├── CancellationRegistry.discard(run_id)
     │   └── queue.put(terminal or 兜底 RUN_FAILED) + queue.put(_END)
@@ -226,18 +237,51 @@ prepare(definition, user_input, session_id, user_key, db, registry, skill_regist
 ├── 1. 会话/摘要记忆 → history
 │   ├── [memory.summary and summarizer] SummaryMemory.context_prefix(session_id, window_size)
 │   └── [仅 memory.session] SessionMemory.history(session_id, window_size)
-├── 2. 长期记忆 → suffix_parts
-│   └── LongTermMemory.recall(definition.key, user_key) → format_facts_for_prompt
-├── 3. 知识检索 → suffix_parts（含防错答守门）
+├── 2. 长期记忆 → suffix_parts（注入预算分支，capabilities.py:173-199）
+│   ├── [long_term_inline_budget_chars=None（默认）] LongTermMemory.recall(...) → format_facts_for_prompt  # 旧行为：全量注入
+│   └── [预算启用] recall_entries(...) → make_item(f"mem:{fact_id}", fact) → plan_inline(items, budget)
+│       ├── format_memory_block 出块（spilled 条目出摘要引用行 + 使用说明）
+│       └── [plan.spilled 非空] extra_tools += memory_read 伴生工具（_dedupe_framework_tool 防命名冲突）
+├── 3. 知识检索 → suffix_parts（含防错答守门，capabilities.py:201-273）
 │   ├── [source 未注册] raise LubanError(CONFIG_ERROR)
 │   ├── connector.retrieve(user_input, top_k)
 │   ├── _filter_snippets(snippets, definition.knowledge)  # score_threshold 阈值 + max_age_days 超龄过滤
-│   ├── [过滤后非空] cite=True 强引用约束头 + format_snippets_for_prompt 编号 / cite=False 纯片段
+│   ├── [过滤后非空 且 inline_budget_chars=None（默认）] cite=True 强引用约束头 + format_snippets_for_prompt 编号 / cite=False 纯片段  # 旧行为：全量内联
+│   ├── [过滤后非空 且 预算启用] make_item(f"kn:{chunk_id}", content) → plan_inline → format_knowledge_block
+│   │   ├── 无 chunk_id（自定义 connector 未透传）的条目强制内联不 spill（不能悄悄丢，capabilities.py:247-251）
+│   │   └── [plan.spilled 非空] extra_tools += knowledge_read 伴生工具（allowed_sources=definition.knowledge.sources）
 │   └── [过滤后为空 且 no_hit_fallback 非 None] knowledge_no_hit=True（不注入 suffix）
 ├── 4. Skill 元数据 + skill_load 工具 → suffix_parts / extra_tools
 │   └── [与用户工具同名冲突] 改名 luban:<key> + 记 warning
 └── return CapabilityContext(system_suffix="\n\n".join(suffix_parts), extra_tools, history, knowledge_no_hit)
 ```
+
+#### 异步工具后台任务生命周期（开关 TOOL_ASYNC_ENABLED，默认关）
+
+`execution_mode="async"` 的工具调用不阻塞等结果：bridge 同步段走完 `preflight`（审批前置）后立即返回占位，`AsyncToolRunner` 的监督协程在后台跑 `executor.launch` 并发 `TOOL_TASK_*` 事件（完整管线见 tool-mcp 模块文档"调用树"；这里登记运行时生命周期，`lubanagent/runtime/async_tools.py:1-11` 模块 docstring）。
+
+```
+async 工具调用（agent_loop.py:1180-1242）
+├── executor.preflight(...)  # 审批前置在同步段：WAITING_APPROVAL 往返不进后台协程（否则已终态 Run 会被改回 WAITING_APPROVAL）
+├── async_runner.start(...)  # task_id 确定性自增 task-1/task-2（FakeLLM 剧本可静态写死 task_result 参数）；并发满 8 回喂 TOOL_TASK_LIMIT
+├── emit TOOL_TASK_ACCEPTED（SSE 名 task.started）+ 返回占位 {"status":"started","task_id","tool"}
+│   # 占位即一步：占位调用本身占 LangGraph 一步，步数预算（max_steps）天然限制 spawn 频率；
+│   # 占位调用不发 TOOL_CALL_COMPLETED——任务生命周期由 TOOL_TASK_* 事件接管
+└── _supervise（async_tools.py:139-228）
+    ├── executor.launch(...)  # 段 4-6（执行/超时/重试）在后台执行
+    ├── asyncio.wait(exec_task, token.subscribe_async().wait())  # 监听 Run 取消（cancellation.py:25-32）
+    ├── 成功/失败 -> TOOL_TASK_COMPLETED / TOOL_TASK_FAILED（step_index 固定为启动步，历史定位语义）
+    ├── Run 取消 / task_stop / 终态清理 -> TOOL_TASK_CANCELLED（吞 CancelledError：stop 是领域语义非异常）
+    └── 只发事件、只读启动时快照，绝不写 step_state（单写者原则：主循环协程独占，async_tools.py:59-64）
+
+Run 终态前（agent_loop.py:967-976、996）
+└── cancel_all(reason="run_finalized") -> abandoned_tasks（模型从未经 task_result 收走结果的 task_id）
+    └── 非空时并入终态事件 payload（_finalize 的 extra_payload，agent_loop.py:1046、1062-1063）
+```
+
+#### 上下文 Inline & Spill（注入预算启用时）
+
+`KnowledgeConfig.inline_budget_chars` / `MemoryConfig.long_term_inline_budget_chars`（`lubanagent/core/definition.py:45、55`，均默认 `None` = 旧行为全量内联）启用后，长期记忆与知识片段的注入从"全量内联"改为"预算内全文内联 + 超预算整条降级为引用行"（`lubanagent/runtime/context_budget.py:44-60`），模型用 `knowledge_read`/`memory_read` 伴生工具按 `kn:{chunk_id}`/`mem:{fact_id}` 引用取回全文（链式召回的最小落法，`lubanagent/runtime/context_tools.py:1-4`）。规划与格式化是纯函数模块（不触 DB/网络），装配分支在 `capabilities.py:173-199`（记忆）与 `:222-270`（知识）。
 
 ## 边界规则
 
@@ -250,13 +294,21 @@ prepare(definition, user_input, session_id, user_key, db, registry, skill_regist
 - **KV-cache 友好：稳定前缀 + append-only 不变量**：`ContextBuilder.build_system_prompt` 只拼 `role` + `instructions` 两个静态段（不含动态内容），保证 system prompt 前缀在同一 Agent 版本内跨请求稳定（`context_builder.py:18-25`）；能力件产出的动态内容（长期记忆/知识片段/Skill 元数据）**只追加到 system prompt 尾部**、不插入前缀中间（`agent_loop.py:436-442`，注释明确标注"KV-cache 语义：能力内容动态后置到 system prompt 尾部，稳定前缀不变"）；消息历史侧 `build_messages` 对 `history` 只做尾部截断（保留最新）+ 追加一条新 `HumanMessage`，不做历史内容的原地改写（`context_builder.py:27-37`，append-only）。该约束在模块 docstring 中明确为"尽力而为非硬不变量"（`context_builder.py:1`）——代码提供组装规则、不做运行期断言（热路径重算比对是同义反复，跨轮断言需 runtime 持有 per-session 状态，见测试 docstring 的决策说明）；但已有**测试级硬约束守卫**（风险 R1）：`tests/lubanagent/runtime/test_kv_cache_prefix_invariant.py` 用测试内独立构造的期望前缀（刻意不经 `ContextBuilder` 自算，防组装器自证清白）断言同一 session 连续两轮 SystemMessage 均以稳定前缀逐字节开头、动态内容只增其后、历史 append-only 不改写——把动态内容前插/穿插进前缀的改动会让测试红。
 - **启动前失败不产生 Run 记录**：`_load_definition`/`_check_runnable` 阶段的 `LubanError` 直接向上抛出，不经过 Run 建档流程，因此不会在 DB 留下记录（`agent_loop.py:186-189`、`AgentRuntime.run` 的 `RUN_NOT_FOUND` 分支印证此契约，`agent_loop.py:219-232`）。`CapabilityMismatchError`（大脑解析失败）同样在建档前被捕获，只发 `RUN_FAILED` 事件不落 Run（`agent_loop.py:191-199`）。
 - **终态唯一性**：无论正常完成、异常收敛还是 `finally` 兜底，`_execute` 保证队列中最终恰好出现一个终态事件（`RUN_COMPLETED`/`RUN_FAILED`/`RUN_CANCELLED`）后跟一个 `_END` 哨兵；`_finalize` 抛异常时有兜底 `RUN_FAILED` 事件补发（`agent_loop.py:661-676`）。
-- **SSE 外发白名单**：`sse_stream` 只转发 `SSE_EVENT_MAP` 覆盖的事件类型，`STEP_STARTED`/`STEP_COMPLETED`/`MODEL_CALL_STARTED` 等内部粒度 Trace 事件默认不外发给客户端（`sse.py:10-26`，代码强制而非约定）；外发帧 payload 经 `redact_value` 脱敏后再拼帧（`sse.py:39`），即使上游已脱敏也再兜一层（纵深防御，H07）。
+- **SSE 外发白名单**：`sse_stream` 只转发 `SSE_EVENT_MAP` 覆盖的事件类型，`STEP_STARTED`/`STEP_COMPLETED`/`MODEL_CALL_STARTED` 等内部粒度 Trace 事件默认不外发给客户端（`sse.py:9-32`，代码强制而非约定）；外发帧 payload 经 `redact_value` 脱敏后再拼帧（`sse.py:43`），即使上游已脱敏也再兜一层（纵深防御，H07）。
 - **Run 错误收敛：异常正文不进 run.error/RUN_FAILED 事件/SSE（H07）**：异常→error dict 统一走 `_error_dict`（`agent_loop.py:112-120`）——`LubanError` 用其 `to_dict()["error"]` 但 `details` 经 `redact_value` 脱敏（`_redact_error_dict`，`agent_loop.py:124-131`）；非 `LubanError` 异常收敛为 `INTERNAL_ERROR` + 稳定消息 `内部错误: {类型名}`（`agent_loop.py:121-122`），不再拼 `str(exc)`——SDK/上游正文/URL/本机路径不进 `Run.error`、`RUN_FAILED` 事件与 SSE；完整堆栈仅进日志（`agent_loop.py:628` `logger.exception`）。异常收敛各分支（GraphRecursionError/BudgetExceededError/RunTimeoutError/LubanError/兜底 Exception）全部经 `_error_dict`（`agent_loop.py:604-630`）。
 - **Trace 事件 payload 的审计副本脱敏，执行仍用真实参数（H07）**：工具/模型事件的审计副本经 `redact_value` 脱敏——`TOOL_CALL_STARTED` 的 `args`（`agent_loop.py:811`）、`TOOL_CALL_COMPLETED` 的 `result`（`agent_loop.py:825`）、`TOOL_APPROVAL_REQUESTED` 的 `args`（`agent_loop.py:760`）、`MODEL_CALL_COMPLETED` 的 `tool_calls[].args`（`agent_loop.py:592`）、`TOOL_CALL_FAILED` 的 `error.details`（`agent_loop.py:837`）；而工具 handler 执行与审批处理仍接收真实参数（执行与审计副本分离，`agent_loop.py:814-818`）。测试：`tests/lubanagent/runtime/test_agent_loop.py`（通用异常稳定消息 + 工具事件脱敏但 handler 收真实值）。
 - **知识全 miss 短路拒答（防错答守门的执行点）**：`capabilities.prepare` 置 `knowledge_no_hit=True`（守门过滤后 snippets 为空且 `no_hit_fallback` 非 None）时，`_execute` 在上下文组装后、模型执行前短路：`last_output = no_hit_fallback`，emit `KNOWLEDGE_NO_HIT` 事件（payload：`sources`/`score_threshold`/`hits_raw`/`hits_kept`——过滤前后条数，阈值校准排障观测点），`outcome = (COMPLETED, EndReason.KNOWLEDGE_NO_HIT, None)`（`agent_loop.py:410-426`）。短路路径**不调模型**——零 token 消耗、无 MODEL_* 事件；Run 仍走正常终态链路（`_finalize` 落终态、`capabilities.finalize` 把兜底话术作为 assistant 消息回写会话记忆）。守门字段与过滤语义详见 `docs/specs/modules/knowledge-memory.md`。
 - **resume 恢复从最新 checkpoint 重放，工具副作用可能重复执行**：`LubanCheckpointer` 无 writes 表（`aput_writes`/`put_writes` no-op，`persistence/checkpoint.py:76-84、116-123`），恢复（`stream_resume` → null-resume）从最新 checkpoint 重放最后一个未完成步骤——工具可能被再次真实执行；无业务幂等保障时**不承诺 exactly-once**（与图 Run resume 同边界）。重放可观测：`tests/lubanagent/runtime/test_resume.py::test_crash_prefix_recovery` 断言 `TOOL_CALL_COMPLETED` 计数为 2（首轮 + 重放）。
 - **resume 后步数与超时重新起算**：LangGraph 的 recursion 计数器不持久化，resume 后 `recursion_limit = max_steps * 2 + 1` 重新计数——步数硬上限可被崩溃续跑绕过一轮（如实声明，非缺陷修复项）；`BudgetGuard` 按 definition boundary 重建（以 `run_usage` 账本恢复已消费 token/cost，**预算不放水**），超时 deadline 从 resume 时刻重新起算（`budget_guard.py:19-23` 构造期设定）。
 - **resume 的记忆回写仅终态一次**：会话/摘要记忆回写只发生在 `_finalize`（`capabilities.finalize`）——崩溃中断的非终态 Run 从未走到 finalize，多次中断-续跑后只有推进到终态的那一次执行回写，不重复回写；已终态 Run 被 resume 显式拒绝，不存在二次回写路径。
+- **异步工具开关与存量兼容**：`AgentRuntime(async_tools=...)` 缺省读 `Settings.tool_async_enabled`（env `TOOL_ASYNC_ENABLED`，默认 False）；开关关闭时 `execution_mode="async"` 的工具按 sync 路径执行（唯一存量路径，零行为变化）（来源：`lubanagent/runtime/agent_loop.py:226、230-234`、`lubanagent/config/settings.py:62-63`）。
+- **异步任务不持久化，进程重启即丢（如实降级）**：`AsyncToolRunner` 是 per-run 进程内存登记处，Run 结束即 `cancel_all`；进程重启后 `task_result` 返回 `not_found`（不假装可恢复），遗留的僵尸 RUNNING Run 由外部 Watchdog 兜底（默认关，见 watchdog 模块文档）（来源：`lubanagent/runtime/async_tools.py:1-11`、`:250-258`）。
+- **占位即一步**：async 工具的占位返回本身占 LangGraph 一步，步数预算（`boundary.max_steps`）天然限制 spawn 频率；并发上限 `max_concurrent=8` 之外再由并发满回喂 `TOOL_TASK_LIMIT` 错误兜底（来源：`lubanagent/runtime/async_tools.py:66、83-86`、`lubanagent/runtime/agent_loop.py:1197-1221`）。
+- **监督协程单写者原则**：后台监督协程只发 `TOOL_TASK_*` 事件、只读启动时快照，绝不写 `step_state`——主循环协程独占 step 序号；completed/failed 事件的 `step_index` 固定为启动步（历史定位语义）（来源：`lubanagent/runtime/async_tools.py:59-64`）。
+- **Inline & Spill 仅随预算启用，None 即旧行为逐字符不变**：`inline_budget_chars`/`long_term_inline_budget_chars` 为 `None`（默认）时 `prepare` 直接走原路径，`context_budget` 模块不参与；预算启用时放不下**整条** spill（不截半条防幻觉）、spill 引用行只在存在 spilled 条目时出现（来源：`lubanagent/runtime/context_budget.py:44-60、94-98`、`lubanagent/runtime/capabilities.py:176-180、224-231`）。
+- **无 chunk_id 的知识条目强制内联**：自定义 `KnowledgeConnector` 未在 metadata 透传 `chunk_id` 时对应条目不可引用（引用了也取不回），一律强制内联不 spill——不可读回的内容不能悄悄丢（来源：`lubanagent/runtime/capabilities.py:234-251`）。
+- **伴生工具越权防线**：`knowledge_read` 的 source 不在 `allowed_sources`（= `definition.knowledge.sources`）视同不存在，`memory_read` 限定 `agent_key + user_key` 双匹配；越权/不存在一律返回 `{"error":"not_found"}`，不泄露存在性（来源：`lubanagent/runtime/context_tools.py:15、21-31、56-66`、`lubanagent/memory/long_term.py:107-113`）。伴生工具仅 spill 非空时注入 `extra_tools`（`capabilities.py:198-199、269-270`）。
+- **abandoned_tasks 并入终态事件**：Run 终态前 `cancel_all(reason="run_finalized")` 收敛全部任务，模型从未收取结果的 task_id 列表非空时并入终态事件 payload（`RUN_COMPLETED`/`RUN_FAILED`/`RUN_CANCELLED` 的 `abandoned_tasks` 字段），供调用方感知"模型 spawn 了但没收"（来源：`lubanagent/runtime/agent_loop.py:967-976、996、1046、1062-1063`）。
 
 ## 名词
 
@@ -270,10 +322,15 @@ prepare(definition, user_input, session_id, user_key, db, registry, skill_regist
 | run 线程（`run-{run_id}`） | 普通 Run 启用 checkpoint 后的 LangGraph `thread_id` 命名约定（`configurable.thread_id = f"run-{run_id}"`），与图编排线程（`uuid4().hex`）命名空间隔离；同一 `checkpoints` 表、两种前缀语义（`agent_loop.py:768-772`） |
 | KV-cache 友好 | system prompt 组装遵循"稳定前缀（role+instructions）+ 动态内容尾部追加 + 历史 append-only"的规则，目的是让模型侧/网关侧的 KV-cache 复用率最大化；运行期不校验（热路径不做断言），由守卫测试 `test_kv_cache_prefix_invariant.py` 测试级强制（`context_builder.py:1`、`tests/lubanagent/runtime/test_kv_cache_prefix_invariant.py:1-25`） |
 | CapabilityContext | `capabilities.prepare()` 的产出，携带 system prompt 尾部追加内容、额外工具、历史消息、知识全 miss 标志（`knowledge_no_hit`）四项，供 `agent_loop` 消费（`capabilities.py:69-79`） |
-| SSE 事件类型 | `SSE_EVENT_MAP` 定义的对外事件名（如 `run.started`/`token.delta`/`tool.finished`/`knowledge.no_hit`），是内部 `TraceEventType` 的子集+改名映射，用于 HTTP SSE 协议外发（`sse.py:9-24`） |
+| SSE 事件类型 | `SSE_EVENT_MAP` 定义的对外事件名（如 `run.started`/`token.delta`/`tool.finished`/`knowledge.no_hit`/`task.started`/`watchdog.alert`），是内部 `TraceEventType` 的子集+改名映射，用于 HTTP SSE 协议外发（`sse.py:9-32`） |
 | KNOWLEDGE_NO_HIT | 知识检索经守门过滤后全 miss 且配置 `no_hit_fallback` 时的事件与结束原因：`TraceEventType.KNOWLEDGE_NO_HIT`（SSE 外发名 `knowledge.no_hit`）+ `EndReason.KNOWLEDGE_NO_HIT`（Run 仍 COMPLETED，未调模型）（`agent_loop.py:410-426`、`sse.py:23`） |
 | 预算继承 | 子 Run 通过 `RunRequest.budget_guard` 复用父 Run 的同一个 `BudgetGuard` 实例，成员消费累计进同一预算池（技术方案 §10.6），落地于 `agent_loop.py:363-378`、`graph/runner.py:129-139`、`multiagent/team.py:281-293` |
 | 取消传播 | 父 Run 的 `CancellationToken` 经 `ctx.metadata["cancellation_token"]` 传给图节点/委派子 Run，子 Run 在自身检查点独立生效，父子互不强杀在途协程（`agent_loop.py:382`、`477-491`） |
+| task_id | 异步工具任务的确定性标识（`task-1`/`task-2` 自增，per-run `AsyncToolRunner` 内唯一）：占位返回携带、`task_result`/`task_stop` 按 it 取回/终止（`async_tools.py:87-93`）；跨模块语义见 glossary |
+| AsyncToolRunner | per-run 异步工具任务登记处（单 Run 生命周期，不持久化）：start/get/stop/cancel_all/snapshot，监督协程收敛终态并发 `TOOL_TASK_*` 事件（`async_tools.py:58-244`） |
+| abandoned_tasks | Run 终态时模型从未经 `task_result` 收走结果的后台任务 task_id 列表，非空时并入终态事件 payload（`agent_loop.py:969-996`）；跨模块语义见 glossary |
+| Inline & Spill | 上下文注入预算机制：预算内全文内联（Inline）、超预算整条降级为引用行（Spill），模型用 `knowledge_read`/`memory_read` 按 `kn:{chunk_id}`/`mem:{fact_id}` 取回全文（`context_budget.py:44-60`）；跨模块语义见 glossary |
+| knowledge_read / memory_read | Inline & Spill 的读回伴生工具（`context_tools.py:18-80`）：按 ref 取 spill 条目全文，越权一律 not_found 不泄露存在性；仅 spill 非空时注入 |
 
 ## 上下游
 

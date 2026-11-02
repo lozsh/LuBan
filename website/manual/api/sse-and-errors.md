@@ -38,7 +38,7 @@ data: {"run_id": "r-abc123", "type": "run_completed", "end_reason": "final_answe
 
 ## 事件全表
 
-只外发下表 15 种事件；payload 以实际推送为准（下表来自代码 emit 处核实）。
+只外发下表 20 种事件；payload 以实际推送为准（下表来自代码 emit 处核实）。
 
 | 事件名 | 触发时机 | payload 要点 |
 |---|---|---|
@@ -57,6 +57,11 @@ data: {"run_id": "r-abc123", "type": "run_completed", "end_reason": "final_answe
 | `budget.warning` | 预算告警（当前场景：配置了费用上限但模型无单价，费用硬上限不可执行） | `reason`（如 `no_pricing`）、`model_key` |
 | `budget.exceeded` | 预算硬上限命中，Run 转失败 | `error`（错误 dict） |
 | `knowledge.no_hit` | 知识检索过滤后全 miss 且配了兜底话术，代码强制短路拒答 | `sources`、`score_threshold`、`hits_raw`、`hits_kept` |
+| `task.started` | 异步工具被接受、转后台执行（开关 `TOOL_ASYNC_ENABLED` 打开时才有） | `tool`、`task_id` |
+| `task.finished` | 异步工具后台执行成功 | `tool`、`task_id`、`result`（已脱敏）、`duration_ms` |
+| `task.failed` | 异步工具后台执行失败 | `tool`、`task_id`、`error`（错误 dict，已脱敏） |
+| `task.cancelled` | 异步任务被终止（`task_stop` 或 Run 收尾清理） | `tool`、`task_id`、`reason` |
+| `watchdog.alert` | 外部 Watchdog 判定 Run 事件断流或运行超时（开关 `WATCHDOG_ENABLED` 打开时才有） | `reason`（`stale_events`/`long_running`）、`age_seconds`、`last_event_at`、`action`、`alert_id` |
 
 注意：
 

@@ -8,6 +8,15 @@
 > - `[migration]` —— DB schema 变更，附 `alembic upgrade` 命令与回滚步骤。
 > - `[breaking]` —— 扩展点 Protocol 或 `core` 契约不兼容变更，升 major 并在 UPGRADE.md 给迁移示例。
 
+## [Unreleased]
+
+### Super-agent 对照借鉴落地
+
+- `[framework]` **异步工具调用**（`TOOL_ASYNC_ENABLED`，默认关闭）：工具可声明 `execution_mode="async"`，开启后被调用立即返回 `task_id` 转后台执行，完成发 `task.finished` 事件；框架自动注入 `task_result` / `task_stop` 伴生工具供模型收结果与终止。审批闸门仍在后台启动前同步完成，Run 收尾清理未收取任务并在终态事件 `abandoned_tasks` 留痕；任务不持久化，进程重启后 `task_result` 如实返回 `not_found`。关闭开关时 async 声明的工具按普通同步工具执行。
+- `[framework]` **上下文注入预算（Inline & Spill）**：Agent 定义可配 `knowledge.inline_budget_chars` / `memory.long_term_inline_budget_chars`（默认不配 = 全量注入，行为不变），超预算条目整条降级为引用行〔ref: kn:N〕，框架按需注入 `knowledge_read` / `memory_read` 伴生工具（仅存在降级条目时）供模型取全文；越权一律返回 `not_found`（knowledge_read 限定 Agent 配置的知识源、memory_read 限定本 Agent + 用户）。
+- `[framework]` **外部 Watchdog**（`WATCHDOG_ENABLED`，默认关闭）：独立于执行引擎的定时巡检，RUNNING Run 事件断流（`stale_events`）或运行超上限（`long_running`）即告警——落目标 Run 的 Trace，`GET /v1/watchdog/alerts` 可查；默认只告警不处置，可插拔 `WatchdogActionHandler` 自动处置（内置 `CancelHandler` 取消示例）。
+- `[shared]` 新增能力配套测试与 OpenAPI 快照更新；三能力使用手册章节同步（Tool 与 MCP / 知识与记忆 / 运行观测 / SSE 事件全表 15→20 种）。合并指令：`[framework]`/`[shared]` 正常合并，均为新增可选能力、默认关闭或默认不配置，存量行为零变化。
+
 ## [1.0.0] - 2026-10-20 · 正式开源
 
 **LubanAgent 首个公开版本**：开源（Apache-2.0）的 Agent 工程基座。Python ≥3.11 + LangChain + LangGraph，MySQL 8（开发期 SQLite 免安装），内置智能客服作为首个完整验证场景。克隆仓库、配一个模型，第一天就能写自己的业务 Agent。

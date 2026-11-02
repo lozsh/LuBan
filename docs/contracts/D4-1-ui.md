@@ -1,13 +1,13 @@
 # 契约 D4-1：`lubanagent/ui` 开发者工作台（前端）
 
-> 来源：开发计划 D4-1、技术方案 §5.7、用户手册 §11、架构设计 §7.10（React 18 + Vite + TS + Tailwind + shadcn/ui）。
+> 来源：开发计划 D4-1、技术方案 §5.7、用户手册 §11、架构设计 §8.10（React 18 + Vite + TS + Tailwind + shadcn/ui）。
 > 前置：D1-3（REST/SSE API、`/openapi.json`）。Node v22 + npm 可用。
 > 执行拆分：G0 脚手架（含后端小补丁）→ G1/G2/G3 三组页面并行 → 集成验收。
 
 ## 契约决策
 
 1. **目录**：`lubanagent/ui/`（独立前端工程，`.gitignore` 已排除其 `dist/` 与 `node_modules/`）。包管理用 **npm**（lock 文件入仓：package-lock.json）。
-2. **栈（架构 §7.10 钉死，不换）**：React 18 + Vite 5 + TypeScript(strict) + Tailwind CSS 3 + react-router-dom 6 + @tanstack/react-query 5。shadcn/ui 组件**源码复制**进 `src/components/ui/`（非 npm 黑盒，用户可改——本单元引入 button/card/input/textarea/select/tabs/table/badge/dialog/scroll-area/separator/label/switch/tooltip 必要子集，class-variance-authority/clsx/tailwind-merge/radix 依赖按 shadcn 官方清单）。
+2. **栈（架构 §8.10 钉死，不换）**：React 18 + Vite 5 + TypeScript(strict) + Tailwind CSS 3 + react-router-dom 6 + @tanstack/react-query 5。shadcn/ui 组件**源码复制**进 `src/components/ui/`（非 npm 黑盒，用户可改——本单元引入 button/card/input/textarea/select/tabs/table/badge/dialog/scroll-area/separator/label/switch/tooltip 必要子集，class-variance-authority/clsx/tailwind-merge/radix 依赖按 shadcn 官方清单）。
 3. **契约先行**：`npm run codegen` = `openapi-typescript http://localhost:8000/openapi.json -o src/api/schema.d.ts` + openapi-fetch client 封装 `src/api/client.ts`；**codegen 产物入仓**（验收原文）；CI 用本地导出的 openapi.json 文件重生成做一致性 diff（`npm run codegen:check`，输入 `../openapi.snapshot.json`——由后端测试导出，G0 负责在后端测试落地 `tests/lubanagent/api/test_openapi_snapshot.py` 写盘快照）。
 4. **Mock**：MSW 2（`src/mocks/`，handlers 覆盖全部已接路由 + fixtures），`npm run dev` 默认开 mock（`VITE_USE_MOCK=true`），`VITE_API_BASE` 切真后端。**全部页面在 mock 下可点可用**（验收原文）。
 5. **SSE**：自实现 `useRunStream` hook（fetch + ReadableStream 逐行解析 `event:`/`data:`，等价实现 Vercel AI SDK 流式渲染语义；不引 AI SDK）。
