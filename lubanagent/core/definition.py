@@ -40,6 +40,9 @@ class KnowledgeConfig(BaseModel):
     score_threshold: float = 0.0  # cosine 低于此值的 snippet 丢弃；0 = 不过滤
     no_hit_fallback: str | None = None  # 过滤后全 miss 的兜底话术；None = 不短路（旧行为）
     max_age_days: int | None = None  # metadata.ingested_at 超龄 chunk 丢弃；None = 不过滤
+    # Inline & Spill 注入预算（字符）：None = 全量内联（旧行为）；超预算条目降级为引用行，
+    # 模型用 knowledge_read 伴生工具按需取全文（伴生工具仅随预算启用注入）
+    inline_budget_chars: int | None = None
 
 
 class MemoryConfig(BaseModel):
@@ -47,6 +50,9 @@ class MemoryConfig(BaseModel):
     window_size: int = 20
     summary: bool = False
     long_term: bool = False
+    # 长期记忆注入预算（字符）：None = 最近 N 条全量注入（旧行为）；超预算条目降级为
+    # 摘要引用行，模型用 memory_read 伴生工具按需取全文
+    long_term_inline_budget_chars: int | None = None
 
 
 class BoundaryConfig(BaseModel):

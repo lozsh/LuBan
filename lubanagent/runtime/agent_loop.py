@@ -64,6 +64,7 @@ from lubanagent.tool import ApprovalManager, ToolExecutor
 from lubanagent.tool.executor import model_from_schema
 
 from . import capabilities
+from .async_tools import AsyncToolRunner, make_task_result_tool, make_task_stop_tool
 from .budget_guard import BudgetGuard
 from .cancellation import CancellationRegistry, CancellationToken
 from .context_builder import ContextBuilder
@@ -222,9 +223,15 @@ class AgentRuntime:
         user_key_fn: Callable[[RunRequest], str | None] | None = None,
         mcp_registry: "McpToolDiscoverer | None" = None,
         checkpointer: LubanCheckpointer | None = None,
+        async_tools: bool | None = None,
     ) -> None:
         self._db = db
         self._settings = settings
+        # 异步工具调用开关：None 读 Settings（TOOL_ASYNC_ENABLED，默认 False）；
+        # 关闭时 execution_mode="async" 的工具按 sync 路径执行（唯一存量路径，零行为变化）
+        self._allow_async = (
+            settings.tool_async_enabled if async_tools is None else async_tools
+        )
         self._registry = registry if registry is not None else default_registry
         # 可选能力件：Skill 注册表 / 摘要器 / 长期记忆用户标识来源 / MCP 客户端登记处
         # （缺省即对应能力不启用；Agent 定义开启而缺依赖 → prepare/发现期显式 CONFIG_ERROR）
@@ -540,6 +547,7 @@ class AgentRuntime:
         abandoned = False
         last_output: str | None = None
         event_stream: Any = None
+        async_runner: AsyncToolRunner | None = None
 
         async def emit(event: TraceEvent, *, persist: bool = True) -> None:
             if trace_started:
@@ -700,15 +708,41 @@ class AgentRuntime:
                     definition = definition.model_copy(
                         update={"instructions": request.instructions_override}
                     )
+                # 6b. 异步工具准备（默认关）：存在 execution_mode="async" 的工具且开关开 →
+                # 建 per-run 任务登记处、注入 task_result/task_stop 伴生工具与使用指引。
+                # 占位即一步（步数预算天然限制 spawn 频率）；伴生工具命名冲突照 luban: 惯例
+                registered_tools = [self._registry.get_tool(key) for key in definition.tools]
+                async_guidance = ""
+                if self._allow_async and any(
+                    t.descriptor.contract.execution_mode == "async" for t in registered_tools
+                ):
+                    async_runner = AsyncToolRunner()
+                    for factory in (make_task_result_tool, make_task_stop_tool):
+                        registered_tools.append(self._dedupe_tool(factory(async_runner)))
+                    async_guidance = (
+                        "后台任务工具约定：async 工具调用立即返回 task_id（status=started）；"
+                        "必须在给出最终回答前用 task_result(task_id) 收取结果"
+                        "（返回 running 表示仍在执行，可再次调用等待），"
+                        "确认不再需要的任务用 task_stop(task_id) 终止。"
+                    )
                 system_prompt = self._context_builder.build_system_prompt(
                     definition, variables=request.variables
                 )
                 if cap_ctx.system_suffix:
                     # KV-cache 语义：能力内容动态后置到 system prompt 尾部，稳定前缀不变
+                    suffix_text = cap_ctx.system_suffix
+                    if async_guidance:
+                        suffix_text = f"{suffix_text}\n\n{async_guidance}"
                     system_prompt = (
-                        f"{system_prompt}\n\n{cap_ctx.system_suffix}"
+                        f"{system_prompt}\n\n{suffix_text}"
                         if system_prompt
-                        else cap_ctx.system_suffix
+                        else suffix_text
+                    )
+                elif async_guidance:
+                    system_prompt = (
+                        f"{system_prompt}\n\n{async_guidance}"
+                        if system_prompt
+                        else async_guidance
                     )
                 messages: list[BaseMessage] = []
                 if system_prompt:
@@ -730,18 +764,8 @@ class AgentRuntime:
                 # 7. 工具桥接（definition.tools 经 Registry + 能力件给的 extra_tools）
                 executor = self._executor_for_run(run_id, run, emit)
                 step_state = {"index": 0}
+                registered_tools.extend(cap_ctx.extra_tools)
                 tools = [
-                    self._bridge_tool(
-                        self._registry.get_tool(key),
-                        run_id,
-                        executor=executor,
-                        ctx=ctx,
-                        emit=emit,
-                        step_state=step_state,
-                    )
-                    for key in definition.tools
-                ]
-                tools.extend(
                     self._bridge_tool(
                         registered,
                         run_id,
@@ -749,9 +773,11 @@ class AgentRuntime:
                         ctx=ctx,
                         emit=emit,
                         step_state=step_state,
+                        async_runner=async_runner,
+                        token=token,
                     )
-                    for registered in cap_ctx.extra_tools
-                )
+                    for registered in registered_tools
+                ]
 
                 # 8. 循环执行（prebuilt agent 承担模型↔工具循环；缺口 #2：checkpointer
                 #    注入时逐步 checkpoint，thread_id 与图编排 thread 命名空间隔离）
@@ -938,6 +964,16 @@ class AgentRuntime:
                 await event_stream.aclose()
 
         # 9-11. 边界命中映射 + 收尾 + 终态唯一
+        # 9a. 异步任务终态清理（在 _finalize 之前）：取消未收任务并等监督协程收敛
+        #     （TOOL_TASK_CANCELLED 在终态事件之前发出）；abandoned = 模型从未收取结果的任务
+        abandoned_tasks: list[str] = []
+        if async_runner is not None:
+            try:
+                abandoned_tasks = await async_runner.cancel_all(
+                    reason="run_finalized", emit=emit
+                )
+            except Exception:
+                logger.exception("Run %s 异步任务清理异常", run_id)
         if extra_event is not None and not abandoned:
             try:
                 await emit(extra_event)
@@ -957,6 +993,7 @@ class AgentRuntime:
                 usage=own_usage,
                 cost=own_cost,
                 emit=emit if not abandoned else None,
+                extra_payload={"abandoned_tasks": abandoned_tasks} if abandoned_tasks else None,
             )
         except Exception:
             logger.exception("Run %s 收尾异常", run_id)
@@ -1006,6 +1043,7 @@ class AgentRuntime:
         usage: TokenUsage,
         cost: float,
         emit: Callable[..., Awaitable[None]] | None,
+        extra_payload: dict[str, Any] | None = None,
     ) -> TraceEvent:
         # H11 本地归因：usage/cost 是本 Run 自己的消费（子 Run 不落共享池累计值），
         # 费用账本按本 Run 实际 model_key 记自己的成本，报表侧聚合不重复相加
@@ -1021,6 +1059,8 @@ class AgentRuntime:
             if cost > 0 and run.model_key is not None:
                 await self._trace_writer.record_cost(run.id, model_key=run.model_key, cost=cost)
         payload: dict[str, Any] = {"end_reason": end_reason.value}
+        if extra_payload:
+            payload.update(extra_payload)  # 如 abandoned_tasks（仅非空时并入）
         if error is not None:
             payload["error"] = error
         if status is RunStatus.COMPLETED and output is not None:
@@ -1090,6 +1130,16 @@ class AgentRuntime:
             approval_handler=gate,
         )
 
+    def _dedupe_tool(self, registered: RegisteredTool) -> RegisteredTool:
+        """伴生工具与用户注册的同名工具冲突时改名 luban:<key>（照 skill_load 惯例）。"""
+        key = registered.descriptor.key
+        if not self._registry.has_tool(key):
+            return registered
+        renamed = f"luban:{key}"
+        logger.warning("工具 %s 与用户注册工具冲突，框架伴生工具改名为 %s", key, renamed)
+        descriptor = registered.descriptor.model_copy(update={"key": renamed, "name": renamed})
+        return RegisteredTool(descriptor=descriptor, handler=registered.handler)
+
     def _bridge_tool(
         self,
         registered: RegisteredTool,
@@ -1099,8 +1149,16 @@ class AgentRuntime:
         ctx: RunContext,
         emit: EventEmitter,
         step_state: dict[str, int],
+        async_runner: AsyncToolRunner | None = None,
+        token: CancellationToken | None = None,
     ) -> StructuredTool:
-        """RegisteredTool -> langchain StructuredTool；治理事件与 stream 主序列同通道。"""
+        """RegisteredTool -> langchain StructuredTool；治理事件与 stream 主序列同通道。
+
+        async 工具（开关开 + execution_mode="async"）：同步段走完 preflight（审批前置，
+        不在后台协程里做——那会把已终态 Run 改回 WAITING_APPROVAL）→ spawn 后台任务 →
+        立即返回占位（status=started + task_id）。占位即一步；结果经 TOOL_TASK_* 事件
+        与 task_result 伴生工具回喂。
+        """
         descriptor = registered.descriptor
         key = descriptor.key
         args_model = model_from_schema(f"{descriptor.name}BridgeArgs", descriptor.args_schema)
@@ -1117,6 +1175,72 @@ class AgentRuntime:
             )
             await self._call_hooks("pre_tool", ctx, descriptor, kwargs)
             started_at = datetime.now(UTC)
+
+            # 异步分支：占位返回，后台执行（审批已在本同步段完成）
+            if async_runner is not None and descriptor.contract.execution_mode == "async":
+                try:
+                    validated = await executor.preflight(registered, kwargs, ctx=ctx)
+                except LubanError as exc:
+                    return await self._bridge_fail(
+                        run_id, key, exc, ctx, emit, step_state, started_at
+                    )
+                record = async_runner.start(
+                    run_id=run_id,
+                    registered=registered,
+                    validated_args=validated,
+                    executor=executor,
+                    ctx=ctx,
+                    emit=emit,
+                    step_index=step_index,
+                    token=token,
+                )
+                if record is None:
+                    # 并发上限：失败回喂模型（不 spawn，步数预算外再加一道闸）
+                    error = {
+                        "code": "TOOL_TASK_LIMIT",
+                        "message": "后台任务并发已满，请先收取或终止已有任务",
+                    }
+                    await emit(
+                        _new_event(
+                            run_id,
+                            TraceEventType.TOOL_CALL_FAILED,
+                            {"tool": key, "error": error},
+                            step_index=step_index,
+                        )
+                    )
+                    step = Step(
+                        index=step_index,
+                        kind="tool",
+                        name=key,
+                        started_at=started_at,
+                        ended_at=datetime.now(UTC),
+                        error=error,
+                    )
+                    await self._call_hooks("post_step", ctx, step)
+                    step_state["index"] += 1
+                    return json.dumps({"error": error}, ensure_ascii=False)
+                step = Step(
+                    index=step_index,
+                    kind="tool",
+                    name=key,
+                    started_at=started_at,
+                    ended_at=datetime.now(UTC),
+                )
+                await self._call_hooks("post_step", ctx, step)
+                step_state["index"] += 1
+                await emit(
+                    _new_event(
+                        run_id,
+                        TraceEventType.TOOL_TASK_ACCEPTED,
+                        {"tool": key, "task_id": record.task_id},
+                        step_index=step_index,
+                    )
+                )
+                return json.dumps(
+                    {"status": "started", "task_id": record.task_id, "tool": key},
+                    ensure_ascii=False,
+                )
+
             result = await executor.execute(registered, kwargs, ctx=ctx)
             if result.success:
                 await emit(
@@ -1167,6 +1291,39 @@ class AgentRuntime:
             args_schema=args_model,
             infer_schema=False,
         )
+
+    async def _bridge_fail(
+        self,
+        run_id: str,
+        key: str,
+        exc: LubanError,
+        ctx: RunContext,
+        emit: EventEmitter,
+        step_state: dict[str, int],
+        started_at: datetime,
+    ) -> str:
+        """异步分支 preflight 失败的收敛：与同步失败回喂同语义（治理错误不炸循环）。"""
+        step_index = step_state["index"]
+        error = exc.to_dict()["error"]
+        await emit(
+            _new_event(
+                run_id,
+                TraceEventType.TOOL_CALL_FAILED,
+                {"tool": key, "error": _redact_error_dict(error)},
+                step_index=step_index,
+            )
+        )
+        step = Step(
+            index=step_index,
+            kind="tool",
+            name=key,
+            started_at=started_at,
+            ended_at=datetime.now(UTC),
+            error=error,
+        )
+        await self._call_hooks("post_step", ctx, step)
+        step_state["index"] += 1
+        return json.dumps({"error": error}, ensure_ascii=False)
 
     # ------------------------------------------------------------------ helpers
 

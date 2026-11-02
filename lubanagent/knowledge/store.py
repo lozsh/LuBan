@@ -212,3 +212,20 @@ class KnowledgeStore:
         ]
         hits.sort(key=lambda hit: hit["score"], reverse=True)
         return hits[:top_k]
+
+    async def get_chunk(self, chunk_id: int) -> dict | None:
+        """按主键取单个 chunk（knowledge_read 伴生工具的读回端）；不存在返回 None。
+
+        返回与 search 同构的 dict（无 score）；embedding 不返回（读回场景用不到）。
+        """
+        async with self._db.session() as session:
+            row = await session.get(KnowledgeChunkRow, chunk_id)
+        if row is None:
+            return None
+        return {
+            "id": row.id,
+            "source": row.source,
+            "chunk_index": row.chunk_index,
+            "content": row.content,
+            "metadata": row.chunk_metadata,
+        }

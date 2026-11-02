@@ -1,11 +1,21 @@
 """长期记忆：agent_key + user_key 维度的跨会话关键事实，显式写入、按最近 N 条注入。"""
 
+from dataclasses import dataclass
+
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lubanagent.config.settings import get_settings
 from lubanagent.persistence import Database
 from lubanagent.persistence.models.memory import LongTermMemoryRow
+
+
+@dataclass(frozen=True)
+class MemoryEntry:
+    """一条带 id 的事实（注入预算场景：id 作引用供 memory_read 取回全文）。"""
+
+    fact_id: int
+    fact: str
 
 
 class LongTermMemory:
@@ -65,6 +75,13 @@ class LongTermMemory:
 
     async def recall(self, agent_key: str, user_key: str, *, limit: int = 20) -> list[str]:
         """取最近 limit 条（created_at 倒序、id 倒序决胜），再反转为正序返回。"""
+        entries = await self.recall_entries(agent_key, user_key, limit=limit)
+        return [entry.fact for entry in entries]
+
+    async def recall_entries(
+        self, agent_key: str, user_key: str, *, limit: int = 20
+    ) -> list[MemoryEntry]:
+        """recall 的带 id 变体（注入预算场景）；排序语义与 recall 一致。"""
         async with self._db.session() as session:
             rows = list(
                 (
@@ -85,7 +102,15 @@ class LongTermMemory:
                 .all()
             )
             rows.reverse()
-            return [row.fact for row in rows]
+            return [MemoryEntry(fact_id=row.id, fact=row.fact) for row in rows]
+
+    async def get(self, agent_key: str, user_key: str, fact_id: int) -> str | None:
+        """按 id 取单条全文（memory_read 伴生工具的读回端）；限定 agent+user 防越权。"""
+        async with self._db.session() as session:
+            row = await session.get(LongTermMemoryRow, fact_id)
+        if row is None or row.agent_key != agent_key or row.user_key != user_key:
+            return None
+        return row.fact
 
     async def forget(self, agent_key: str, user_key: str, fact_id: int) -> bool:
         """按 id 删除（限定 agent+user 防越权），返回是否删到。"""

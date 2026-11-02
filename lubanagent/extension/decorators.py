@@ -46,6 +46,7 @@ def tool(
     max_retries: int = 0,
     idempotent: bool = False,
     approval_required: bool = False,
+    execution_mode: str = "sync",
     registry: Registry | None = None,
 ) -> Callable:
     """装饰函数生成 ToolDescriptor 并注册, 返回原函数。"""
@@ -63,6 +64,7 @@ def tool(
                 max_retries=max_retries,
                 idempotent=idempotent,
                 approval_required=approval_required,
+                execution_mode=execution_mode,  # type: ignore[arg-type]
             ),
             signature_hash=_signature_hash(fn),
         )

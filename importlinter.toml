@@ -231,3 +231,15 @@ forbidden_modules = [
 ]
 # H09 修订：mcp 从禁止移到允许——装配根接线 MCP 登记处（McpRegistry 注入
 # Runtime + lifespan load_from_db/aclose），不实现任何 MCP 业务逻辑。
+
+[[tool.importlinter.contracts]]
+name = "分层：watchdog 只读 persistence + 发事件（外部控制回路，不 import runtime/api，取消经注入回调）"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["lubanagent.watchdog"]
+forbidden_modules = [
+    "lubanagent.runtime", "lubanagent.tool", "lubanagent.mcp", "lubanagent.skill",
+    "lubanagent.knowledge", "lubanagent.memory", "lubanagent.graph",
+    "lubanagent.multiagent", "lubanagent.api", "lubanagent.app", "lubanagent.cli",
+    "fastapi",
+]

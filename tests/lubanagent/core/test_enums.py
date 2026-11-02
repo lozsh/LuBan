@@ -103,5 +103,10 @@ def test_trace_event_type_values() -> None:
         "budget_exceeded",
         "model_fallback",
         "knowledge_no_hit",
+        "watchdog_alert",
+        "tool_task_accepted",
+        "tool_task_completed",
+        "tool_task_failed",
+        "tool_task_cancelled",
     ]
     assert [t.value for t in TraceEventType] == expected

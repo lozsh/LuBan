@@ -23,7 +23,11 @@ class SqlKnowledgeConnector:
                 content=hit["content"],
                 source=hit["source"],
                 score=hit["score"],
-                metadata={**hit["metadata"], "chunk_index": hit["chunk_index"]},
+                metadata={
+                    **hit["metadata"],
+                    "chunk_index": hit["chunk_index"],
+                    "chunk_id": hit["id"],
+                },
             )
             for hit in hits
         ]

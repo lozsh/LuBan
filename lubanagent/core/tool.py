@@ -23,6 +23,10 @@ class ToolContract(BaseModel):
     max_retries: int = 0
     idempotent: bool = False
     approval_required: bool = False
+    # sync = 调用方阻塞等结果（唯一存量路径）；async = 立即返回占位、后台执行、
+    # 模型用 task_result/task_stop 伴生工具取结果/终止（需运行时开关 TOOL_ASYNC_ENABLED
+    # 同时开启；关闭时 async 声明按 sync 路径执行，零行为变化）
+    execution_mode: Literal["sync", "async"] = "sync"
 
 
 class ToolDescriptor(BaseModel):

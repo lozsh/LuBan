@@ -29,6 +29,13 @@ class TraceEventType(str, Enum):  # noqa: UP042  # 契约钉死枚举用 str, En
     BUDGET_EXCEEDED = "budget_exceeded"
     MODEL_FALLBACK = "model_fallback"
     KNOWLEDGE_NO_HIT = "knowledge_no_hit"
+    WATCHDOG_ALERT = "watchdog_alert"
+    # 异步工具任务（TOOL_ASYNC_ENABLED 开启时）：accepted=占位返回；
+    # completed/failed=后台收尾（step_index=启动步，历史定位）；cancelled=stop/终态清理
+    TOOL_TASK_ACCEPTED = "tool_task_accepted"
+    TOOL_TASK_COMPLETED = "tool_task_completed"
+    TOOL_TASK_FAILED = "tool_task_failed"
+    TOOL_TASK_CANCELLED = "tool_task_cancelled"
 
 
 class TraceEvent(BaseModel):

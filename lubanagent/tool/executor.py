@@ -4,7 +4,7 @@ import inspect
 import json
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import Any, Protocol
 
@@ -127,53 +127,75 @@ class ToolExecutor:
         *,
         ctx: RunContext | None = None,
     ) -> ToolResult:
-        descriptor = registered.descriptor
-        contract = descriptor.contract
         start = self._clock()
 
-        # 1. 参数校验: 失败不进入执行
+        # 1-3. 校验/权限/审批（preflight，失败收敛为失败 ToolResult，语义与拆分前一致）
         try:
-            validated = self._validate_args(descriptor, args)
+            validated = await self.preflight(registered, args, ctx=ctx)
         except LubanError as exc:
             return self._fail(exc, start, attempts=0)
 
+        result = await self.launch(registered, validated, ctx=ctx)
+        # duration 口径与拆分前一致：含 preflight 耗时（审批等待计入时长是既有序列）
+        return replace(result, duration_ms=self._elapsed_ms(start))
+
+    async def preflight(
+        self,
+        registered: RegisteredTool,
+        args: dict[str, Any],
+        *,
+        ctx: RunContext | None = None,
+    ) -> dict[str, Any]:
+        """管线段 1-3：参数校验 + 权限 + 审批闸门，通过返回 validated args。
+
+        失败抛 LubanError（区别于 execute 的失败 ToolResult 收敛）——异步工具桥在
+        spawn 后台任务之前同步调用本段，保证审批（含 WAITING_APPROVAL 状态往返）
+        不发生在后台协程里。
+        """
+        descriptor = registered.descriptor
+        contract = descriptor.contract
+
+        # 1. 参数校验: 失败不进入执行
+        validated = self._validate_args(descriptor, args)
+
         # 2. 权限检查: 无策略 = 放行
         if self._permission_policy is not None:
-            try:
-                await self._permission_policy.check(ctx, descriptor, validated)
-            except LubanError as exc:
-                return self._fail(exc, start, attempts=0)
+            await self._permission_policy.check(ctx, descriptor, validated)
 
         # 3. 人工确认闸门: 无 handler 时由 Runtime 接住暂停 Run
         if contract.approval_required or descriptor.risk == RiskLevel.HIGH:
             if self._approval_handler is None:
-                return self._fail(
-                    ToolApprovalRequiredError(
-                        f"工具 {descriptor.key} 需要人工确认", details={"tool": descriptor.key}
-                    ),
-                    start,
-                    attempts=0,
+                raise ToolApprovalRequiredError(
+                    f"工具 {descriptor.key} 需要人工确认", details={"tool": descriptor.key}
                 )
             approved = await self._approval_handler(descriptor, validated)
             if not approved:
-                return self._fail(
-                    LubanError(
-                        ErrorCode.TOOL_APPROVAL_REQUIRED,
-                        f"工具 {descriptor.key} 审批被拒绝",
-                        details={"tool": descriptor.key, "decision": "rejected"},
-                    ),
-                    start,
-                    attempts=0,
+                raise LubanError(
+                    ErrorCode.TOOL_APPROVAL_REQUIRED,
+                    f"工具 {descriptor.key} 审批被拒绝",
+                    details={"tool": descriptor.key, "decision": "rejected"},
                 )
+        return validated
 
-        # 4-6. 执行 + 超时 + 重试: 仅幂等工具可重试, 指数退避 0.1s x 2^n
+    async def launch(
+        self,
+        registered: RegisteredTool,
+        validated_args: dict[str, Any],
+        *,
+        ctx: RunContext | None = None,
+    ) -> ToolResult:
+        """管线段 4-6：执行 + 超时 + 重试（preflight 通过后调用；仅幂等工具可重试）。"""
+        descriptor = registered.descriptor
+        contract = descriptor.contract
+        start = self._clock()
+
         max_attempts = contract.max_retries + 1 if contract.idempotent else 1
         attempt = 0
         while True:
             attempt += 1
             try:
                 value = await self._invoke(
-                    registered.handler, validated, contract.timeout_seconds, ctx=ctx
+                    registered.handler, validated_args, contract.timeout_seconds, ctx=ctx
                 )
                 return ToolResult(
                     success=True,

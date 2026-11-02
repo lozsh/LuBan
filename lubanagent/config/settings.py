@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     # 长期记忆容量（每 agent+user 条数上限，超出淘汰最旧；防长期运行无限增长）
     long_term_memory_capacity: int = 1000  # LONG_TERM_MEMORY_CAPACITY
     avatar_files_root: str = "data/avatars"  # AVATAR_FILES_ROOT
+    # 外部 Watchdog 控制回路（默认关）：判 RUNNING Run 是否有实质进展，
+    # 告警事件落目标 Run 的 trace；阈值仅在 enabled 时生效
+    watchdog_enabled: bool = False  # WATCHDOG_ENABLED
+    watchdog_interval_seconds: float = 60.0  # WATCHDOG_INTERVAL_SECONDS
+    watchdog_stale_after_seconds: float = 300.0  # WATCHDOG_STALE_AFTER_SECONDS
+    watchdog_max_run_seconds: float = 3600.0  # WATCHDOG_MAX_RUN_SECONDS
+    # 异步工具调用（默认关）：execution_mode="async" 的工具立即返回占位、后台执行，
+    # 注入 task_result/task_stop 伴生工具；关闭时 async 声明按 sync 路径执行（零行为变化）
+    tool_async_enabled: bool = False  # TOOL_ASYNC_ENABLED
 
     @field_validator("extension_packages", mode="before")
     @classmethod

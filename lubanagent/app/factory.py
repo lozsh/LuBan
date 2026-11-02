@@ -1,5 +1,6 @@
 """应用装配根：settings → db → registry/discover → observability → runtime → FastAPI。"""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
@@ -33,6 +34,7 @@ from lubanagent.persistence import Database, DbApprovalStore, LubanCheckpointer,
 from lubanagent.runtime import AgentRuntime, RunRequest
 from lubanagent.skill import SkillRegistry
 from lubanagent.tool import ApprovalManager
+from lubanagent.watchdog import CancelHandler, WatchdogService
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +165,27 @@ def create_app(
         # 用户领地启动钩子（scan 扩展/灌知识源等；on_event 被 lifespan 覆盖故经此调用）
         if on_startup is not None:
             await on_startup()
+        # 外部 Watchdog 控制回路（默认关；取消处置经回调绑 runtime.cancel，不 import runtime）
+        watchdog_task: asyncio.Task[None] | None = None
+        if settings.watchdog_enabled:
+            watchdog = WatchdogService(
+                db=db,
+                settings=settings,
+                action_handler=CancelHandler(runtime.cancel),
+            )
+            app.state.watchdog = watchdog
+            watchdog_task = asyncio.create_task(watchdog.run_forever())
+            logger.info(
+                "Watchdog 控制回路已启动（interval=%ss）", settings.watchdog_interval_seconds
+            )
         yield
-        # 关闭：观测外发收尾 + MCP 长连释放 + 连接池
+        # 关闭：观测外发收尾 + Watchdog 巡检停 + MCP 长连释放 + 连接池
+        if watchdog_task is not None:
+            watchdog_task.cancel()
+            try:
+                await watchdog_task
+            except asyncio.CancelledError:
+                pass
         if isinstance(observability, SafeBackend):
             await observability.drain()
         if mcp_registry is not None:

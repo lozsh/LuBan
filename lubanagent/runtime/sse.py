@@ -23,6 +23,11 @@ SSE_EVENT_MAP: dict[TraceEventType, str] = {
     TraceEventType.BUDGET_WARNING: "budget.warning",
     TraceEventType.BUDGET_EXCEEDED: "budget.exceeded",
     TraceEventType.KNOWLEDGE_NO_HIT: "knowledge.no_hit",
+    TraceEventType.WATCHDOG_ALERT: "watchdog.alert",
+    TraceEventType.TOOL_TASK_ACCEPTED: "task.started",
+    TraceEventType.TOOL_TASK_COMPLETED: "task.finished",
+    TraceEventType.TOOL_TASK_FAILED: "task.failed",
+    TraceEventType.TOOL_TASK_CANCELLED: "task.cancelled",
     # STEP_/MODEL_CALL_ 等内部 Trace 粒度事件默认不外发
 }
 

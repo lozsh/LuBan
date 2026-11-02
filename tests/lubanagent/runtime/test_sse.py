@@ -71,3 +71,26 @@ async def test_sse_stream_redacts_secret_fields_and_credential_strings() -> None
     assert data["args"] == {"order_id": "A-1", "api_key": "[REDACTED]"}
     assert data["upstream"] == "[REDACTED]"
     assert data["note"] == "正常业务字段保留"
+
+
+def test_event_map_covers_async_task_and_watchdog_types() -> None:
+    """异步工具任务与 Watchdog 事件按新映射外发（白名单只增不改）。"""
+    assert SSE_EVENT_MAP[TraceEventType.TOOL_TASK_ACCEPTED] == "task.started"
+    assert SSE_EVENT_MAP[TraceEventType.TOOL_TASK_COMPLETED] == "task.finished"
+    assert SSE_EVENT_MAP[TraceEventType.TOOL_TASK_FAILED] == "task.failed"
+    assert SSE_EVENT_MAP[TraceEventType.TOOL_TASK_CANCELLED] == "task.cancelled"
+    assert SSE_EVENT_MAP[TraceEventType.WATCHDOG_ALERT] == "watchdog.alert"
+
+
+async def test_sse_stream_emits_task_events() -> None:
+    async def events():
+        yield _event(TraceEventType.TOOL_TASK_ACCEPTED, {"tool": "t", "task_id": "task-1"})
+        yield _event(
+            TraceEventType.TOOL_TASK_CANCELLED,
+            {"tool": "t", "task_id": "task-1", "reason": "run_finalized"},
+        )
+
+    frames = [frame async for frame in sse_stream(events())]
+    assert frames[0].startswith("event: task.started\n")
+    assert "task-1" in frames[0]
+    assert frames[1].startswith("event: task.cancelled\n")

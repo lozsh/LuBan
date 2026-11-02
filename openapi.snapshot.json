@@ -1049,6 +1049,17 @@
             "title": "Cite",
             "type": "boolean"
           },
+          "inline_budget_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inline Budget Chars"
+          },
           "max_age_days": {
             "anyOf": [
               {
@@ -1285,6 +1296,17 @@
             "default": false,
             "title": "Long Term",
             "type": "boolean"
+          },
+          "long_term_inline_budget_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Long Term Inline Budget Chars"
           },
           "session": {
             "default": true,
@@ -1879,6 +1901,15 @@
             "title": "Approval Required",
             "type": "boolean"
           },
+          "execution_mode": {
+            "default": "sync",
+            "enum": [
+              "sync",
+              "async"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
           "idempotent": {
             "default": false,
             "title": "Idempotent",
@@ -2082,7 +2113,12 @@
           "budget_warning",
           "budget_exceeded",
           "model_fallback",
-          "knowledge_no_hit"
+          "knowledge_no_hit",
+          "watchdog_alert",
+          "tool_task_accepted",
+          "tool_task_completed",
+          "tool_task_failed",
+          "tool_task_cancelled"
         ],
         "title": "TraceEventType",
         "type": "string"
@@ -2145,6 +2181,58 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WatchdogAlert": {
+        "description": "一次告警；alert_id 确定性场景下可注入 clock 后仍唯一（uuid）。",
+        "properties": {
+          "age_seconds": {
+            "title": "Age Seconds",
+            "type": "number"
+          },
+          "alert_id": {
+            "title": "Alert Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "last_event_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Event At"
+          },
+          "reason": {
+            "enum": [
+              "stale_events",
+              "long_running"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alert_id",
+          "run_id",
+          "reason",
+          "last_event_at",
+          "age_seconds",
+          "created_at"
+        ],
+        "title": "WatchdogAlert",
         "type": "object"
       }
     }
@@ -3976,6 +4064,32 @@
         "summary": "Get Trace",
         "tags": [
           "traces"
+        ]
+      }
+    },
+    "/v1/watchdog/alerts": {
+      "get": {
+        "description": "最近告警留痕（进程内 deque，重启清零）；WATCHDOG_ENABLED=false 时恒为空。",
+        "operationId": "list_alerts_v1_watchdog_alerts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WatchdogAlert"
+                  },
+                  "title": "Response List Alerts V1 Watchdog Alerts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Alerts",
+        "tags": [
+          "watchdog"
         ]
       }
     }

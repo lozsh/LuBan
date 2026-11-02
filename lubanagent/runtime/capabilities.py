@@ -15,7 +15,7 @@ from langchain_core.messages import BaseMessage
 
 from lubanagent.core import AgentDefinition, ErrorCode, LubanError
 from lubanagent.extension import RegisteredTool, Registry, Snippet
-from lubanagent.knowledge import format_snippets_for_prompt
+from lubanagent.knowledge import KnowledgeStore, format_snippets_for_prompt
 from lubanagent.memory import (
     LongTermMemory,
     SessionMemory,
@@ -24,6 +24,17 @@ from lubanagent.memory import (
     format_facts_for_prompt,
 )
 from lubanagent.persistence import Database
+from lubanagent.runtime.context_budget import (
+    InlinePlan,
+    format_knowledge_block,
+    format_memory_block,
+    make_item,
+    plan_inline,
+)
+from lubanagent.runtime.context_tools import (
+    make_knowledge_read_tool,
+    make_memory_read_tool,
+)
 from lubanagent.skill import SkillRegistry
 
 logger = logging.getLogger(__name__)
@@ -64,6 +75,19 @@ def _filter_snippets(snippets: list[Snippet], config: Any) -> list[Snippet]:
                 kept.append(snippet)
         snippets = kept
     return snippets
+
+
+def _dedupe_framework_tool(
+    tool: RegisteredTool, registry: Registry, label: str
+) -> RegisteredTool:
+    """伴生工具与用户注册的同名工具冲突时改名 luban:<key>（照 skill_load 惯例）。"""
+    key = tool.descriptor.key
+    if not registry.has_tool(key):
+        return tool
+    renamed = f"luban:{key}"
+    logger.warning("工具 %s 与用户注册工具冲突，框架 %s 工具改名为 %s", key, label, renamed)
+    descriptor = tool.descriptor.model_copy(update={"key": renamed, "name": renamed})
+    return RegisteredTool(descriptor=descriptor, handler=tool.handler)
 
 
 @dataclass(frozen=True)
@@ -145,12 +169,34 @@ async def prepare(
             )
 
     suffix_parts: list[str] = []
-    # 2. 长期记忆 → suffix
+    extra_tools: list[RegisteredTool] = []
+    # 2. 长期记忆 → suffix（预算 None = 全量注入旧行为；有预算走 Inline & Spill）
     if use_long_term and user_key:
-        facts = await LongTermMemory(db).recall(definition.key, user_key)
-        facts_text = format_facts_for_prompt(facts)
-        if facts_text:
-            suffix_parts.append(facts_text)
+        memory_budget = memory_cfg.long_term_inline_budget_chars
+        if memory_budget is None:
+            facts = await LongTermMemory(db).recall(definition.key, user_key)
+            facts_text = format_facts_for_prompt(facts)
+            if facts_text:
+                suffix_parts.append(facts_text)
+        else:
+            entries = await LongTermMemory(db).recall_entries(definition.key, user_key)
+            items = [
+                make_item(f"mem:{entry.fact_id}", entry.fact, budget=memory_budget)
+                for entry in entries
+            ]
+            plan = plan_inline(items, memory_budget)
+            if items:
+                read_tool = _dedupe_framework_tool(
+                    make_memory_read_tool(db, definition.key, user_key),
+                    registry,
+                    "记忆读取",
+                )
+                block = format_memory_block(
+                    items, plan, read_tool_key=read_tool.descriptor.key
+                )
+                suffix_parts.append(block)
+                if plan.spilled:
+                    extra_tools.append(read_tool)
 
     # 3. 知识检索 → suffix（query 用当前 user_input，v1 不做多轮改写）
     knowledge_no_hit = False
@@ -174,19 +220,59 @@ async def prepare(
         snippets = _filter_snippets(snippets, definition.knowledge)
         knowledge_hits_kept = len(snippets)
         if snippets:
-            if definition.knowledge.cite:
-                suffix_parts.append(
-                    f"{_KNOWLEDGE_HEADER_CITE}\n{format_snippets_for_prompt(snippets)}"
-                )
+            knowledge_budget = definition.knowledge.inline_budget_chars
+            if knowledge_budget is None:
+                if definition.knowledge.cite:
+                    suffix_parts.append(
+                        f"{_KNOWLEDGE_HEADER_CITE}\n{format_snippets_for_prompt(snippets)}"
+                    )
+                else:
+                    body = "\n".join(snippet.content for snippet in snippets)
+                    suffix_parts.append(f"{_KNOWLEDGE_HEADER_PLAIN}\n{body}")
             else:
-                body = "\n".join(snippet.content for snippet in snippets)
-                suffix_parts.append(f"{_KNOWLEDGE_HEADER_PLAIN}\n{body}")
+                # Inline & Spill：预算内全文内联，超预算整条降级为引用行（用伴生工具读回）
+                items = [
+                    make_item(
+                        (
+                            f"kn:{snippet.metadata['chunk_id']}"
+                            if isinstance(snippet.metadata.get("chunk_id"), int)
+                            else ""
+                        ),
+                        snippet.content,
+                        budget=knowledge_budget,
+                    )
+                    for snippet in snippets
+                ]
+                plan = plan_inline(items, knowledge_budget)
+                # 无 chunk_id（自定义 connector 未透传）的条目不可引用 → 强制内联（不能悄悄丢）
+                plan = InlinePlan(
+                    inline=[it for it in items if not it.key or it in plan.inline],
+                    spilled=[it for it in plan.spilled if it.key],
+                )
+                read_tool = _dedupe_framework_tool(
+                    make_knowledge_read_tool(
+                        KnowledgeStore(db), list(definition.knowledge.sources)
+                    ),
+                    registry,
+                    "知识读取",
+                )
+                body = format_knowledge_block(
+                    items,
+                    plan,
+                    cite=definition.knowledge.cite,
+                    read_tool_key=read_tool.descriptor.key,
+                )
+                header = (
+                    _KNOWLEDGE_HEADER_CITE if definition.knowledge.cite else _KNOWLEDGE_HEADER_PLAIN
+                )
+                suffix_parts.append(f"{header}\n{body}")
+                if plan.spilled:
+                    extra_tools.append(read_tool)
         elif definition.knowledge.no_hit_fallback is not None:
             # 全 miss 且配置了兜底话术 → 标记短路（agent_loop 不调模型直接拒答）
             knowledge_no_hit = True
 
     # 4. Skill 元数据 → suffix；skill_load 工具 → extra_tools
-    extra_tools: list[RegisteredTool] = []
     if use_skills and skill_registry is not None:
         metadata = skill_registry.format_metadata_for_prompt(definition.skills)
         if metadata:

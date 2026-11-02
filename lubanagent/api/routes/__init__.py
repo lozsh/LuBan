@@ -16,6 +16,7 @@ from lubanagent.api.routes import (
     skills,
     tools,
     traces,
+    watchdog,
 )
 
 api_router = APIRouter(prefix="/v1", dependencies=[Depends(get_principal)])
@@ -28,6 +29,7 @@ api_router.include_router(approvals.router)
 api_router.include_router(evals.router)
 api_router.include_router(skills.router)
 api_router.include_router(prompts.router)
+api_router.include_router(watchdog.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(graphs.router)
 api_router.include_router(avatars.router)
