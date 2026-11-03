@@ -50,6 +50,7 @@
 | D1-8 | `lubanagent/cli` luban 命令行 | 框架 | F1/F6 | D1-1（`luban eval` 额外依赖 D2-1） | 与 D1 阶段后期并行 |
 | D1-9 | CI + 测试基建（import-linter/pytest/前端 build/FakeLLM） | 横切 | 全局守卫 | D0-2、D1-2 | import-linter 在 D0-2 后即起 |
 | D1-10 | Prompt 库一等实体化（core/prompt + prompts 表 + /v1/prompts + 工作台 Prompt 库页） | 框架 | F1/F10 | D1-1、D1-3 | 与 D1-9 并行（已完成） |
+| D1-11 | Super-agent 借鉴四项（异步工具调用 / 上下文注入预算 / 外部 Watchdog / Fast-Slow Path 模式入架构文档） | 框架 | F3/F4/F5 扩展 | D1-4、D1-5、D1-7 | 后补增量（2026-11-02 已完成） |
 | D2-1 | `lubanagent/observability/evals` 评测体系 | 框架 | F6 | D1-4、D1-7 | 与 D2-2 并行 |
 | D2-2 | `lubanagent/observability/cost` 成本治理 | 框架 | F7 | D1-4、D1-7 | 与 D2-1 并行 |
 | D2-3 | `lubanagent/tool/builtin` 随包内置通用工具集 | 框架 | F4 | D1-5 | 与 D3 阶段并行 |
@@ -243,6 +244,14 @@ flowchart LR
 - **验收标准**：引用态创建/发版正确解析并落快照；重复 key/版本 409；Prompt 不存在/版本不存在 404；回放历史 Run 不受 Prompt 库后续发版影响；存量 Agent 与 YAML init 行为零变化。
 - **依赖**：D1-1（仓储/迁移）、D1-3（agents 路由接入）。
 - **可并行**：与 D1-9 并行。
+
+#### D1-11 Super-agent 对照借鉴四项（F3/F4/F5 扩展，已完成）
+
+- **开发内容**：DeepSeek Harness《Super-agent 设计探索》四项思想落地（设计出处与对照分析见 `docs/design-docs/LubanAgent-superagent-design-reference.md`）：① **异步工具调用**——工具声明 `execution_mode: "async"` 后调用立即返回占位任务号，伴生工具 `task_result`/`task_stop` 收取结果与终止；审批前置到后台启动之前（后台审批会污染终态 Run 状态机），Run 收束自动清理遗留任务并留痕（`runtime/async_tools.py`，`TOOL_ASYNC_ENABLED` 默认关）；② **上下文注入预算（Inline & Spill）**——知识/长期记忆可配字符预算，超预算条目整条降级为引用行，伴生工具 `knowledge_read`/`memory_read` 按需取回全文（`runtime/context_budget.py` + `context_tools.py`，预算不配=全量注入零变化）；③ **外部 Watchdog**——独立 `lubanagent/watchdog/` 定时巡检"RUNNING Run 是否断流/超时"，默认只告警、动作可插拔（AlertOnly/Cancel），`GET /v1/watchdog/alerts` 查询，配置全部默认关；④ **Fast/Slow Path 两级过滤**升格为架构设计 §7 通用设计模式（纯文档）。
+- **关键架构**：三项能力全部默认关闭，存量 Agent 零行为变化是结构性保证（关闭分支与旧代码路径相同）；后台协程绝不写 `step_state`（主循环单写者）；watchdog 不 import runtime（经注入 `cancel_fn` 触发取消），判据只用现成仓储接口；进程重启后未完成任务如实降级 `not_found`，不假装可恢复。
+- **验收标准**：全量测试绿（含 53 个新用例）、覆盖率门槛达标、import-linter 21 条契约全过；开关关闭时 async 声明工具按同步路径执行、事件流与旧版一致；strict-validation 两轮（FAIL→清偿竞态根因→PASS 零阻塞）+ 真服务冒烟 5/5（Watchdog 实测抓出存量僵尸 Run）。
+- **依赖**：D1-4（runtime 事件环）、D1-5（tool 管线 preflight/launch 拆分）、D1-7（trace 事件契约）。
+- **可并行**：后补增量单元（2026-11-02），不占主干依赖图。
 
 ### 阶段 2：能力层与治理层
 
@@ -448,7 +457,7 @@ curl -N -X POST http://localhost:8000/v1/agents/customer-service-bot/runs -H "Co
 
 ## 7. 发布冲刺待办（2026-10-22 起）
 
-代码侧（阶段 0-5 + 批次 I/D1-9 六项）已全部完成，剩余工作按三段推进：
+代码侧（阶段 0-5 + 批次 I/D1-9 六项 + 后补单元 D1-10/D1-11）已全部完成，剩余工作按三段推进：
 
 ### 7.1 发布前收尾（本周级）
 

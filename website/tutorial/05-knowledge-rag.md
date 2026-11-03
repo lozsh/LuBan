@@ -317,5 +317,6 @@ knowledge:
 **延伸阅读**
 
 - 手册：[知识与记忆](../manual/features/knowledge-memory.md)（守门字段全解、三种记忆策略、知识库工作台管理）
+- 进阶（默认关闭）：知识/记忆注入可设字符预算，放不下的条目整条降级为引用行，模型用 `knowledge_read`/`memory_read` 按需取回全文，见手册知识与记忆「上下文注入预算」
 - 参考产出：[reference/05-lib-faq.yaml](https://github.com/lozsh/LuBan/blob/master/website/tutorial/reference/05-lib-faq.yaml)
 - 对照范本：`app/agents/cs_faq.yaml`（内置客服的 RAG 守门配置）、`app/agents/dept_project.yaml`（部门问答范本）

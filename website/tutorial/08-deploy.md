@@ -301,5 +301,5 @@ docker compose down -v     # 连数据卷一起清（彻底重置）
 **延伸阅读**
 
 - [docs/UPGRADE.md](https://github.com/lozsh/LuBan/blob/master/docs/UPGRADE.md)（升级合并指引）、[部署安全须知](https://github.com/lozsh/LuBan/blob/master/SECURITY.md)
-- 用户手册：[部署与生产清单](../manual/deploy.md)（生产上线前逐项清单）、[跟上游升级](../manual/customization/upgrade.md)（完整升级运维流程）、[运行观测](../manual/features/observability.md)（观测后端与双写设计）
+- 用户手册：[部署与生产清单](../manual/deploy.md)（生产上线前逐项清单）、[跟上游升级](../manual/customization/upgrade.md)（完整升级运维流程）、[运行观测](../manual/features/observability.md)（观测后端与双写设计、外部 Watchdog 卡死 Run 巡检告警）
 - 涉及文件：`docker-compose.yml`、`docker/Dockerfile`、`.lubanagent-upstream`、`CHANGELOG.md`

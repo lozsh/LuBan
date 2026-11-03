@@ -12,7 +12,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 # tutorial 模块
 
-> 这是什么：新手动手教程（`website/tutorial/`，8+1 课）的事实资产登记。更新日期：2026-09-09。对应代码模块：无独立代码——教程引用全仓库各模块的命令/路径/事件名，本文件是"教程引用了哪些外部事实"的登记簿，供代码演进时的漂移抽查联动（改了下表左侧事实 → 必须检查教程对应课是否要跟着改）。
+> 这是什么：新手动手教程（`website/tutorial/`，8+1 课）的事实资产登记。更新日期：2026-11-03。对应代码模块：无独立代码——教程引用全仓库各模块的命令/路径/事件名，本文件是"教程引用了哪些外部事实"的登记簿，供代码演进时的漂移抽查联动（改了下表左侧事实 → 必须检查教程对应课是否要跟着改）。
 
 ## 定位
 
@@ -46,7 +46,10 @@ tutorial 模块管理教程对仓库外部事实的引用清单：教程正文�
 | `cp app/config/.env.example .env` 零配置可跑（SQLite + FakeLLM） | 01 课步骤 2 | 01 课 |
 | `PUT /v1/models` + `PUT /v1/brain-mappings {profile, model_key}` 两步接真模型 | 03 课主线 | 03 课、README 快速开始 |
 | `POST /v1/agents/{key}/runs` 请求体 `{input, session_id, user_id, version, variables, history, instructions_override}`，返回 SSE | 01 课步骤 8 | 01/03 课 |
-| SSE 事件名（教学子集）：run.started / token.delta / tool.started / tool.finished / tool.failed / tool.approval.requested / tool.approval.resolved / knowledge.no_hit / run.completed | 00 课 §8、01 课步骤 8 检查点、03/04 课审批正文 | 00/01/03/04 课（全量 15 种以 `lubanagent/runtime/sse.py` SSE_EVENT_MAP 为准） |
+| SSE 事件名（教学子集）：run.started / token.delta / tool.started / tool.finished / tool.failed / tool.approval.requested / tool.approval.resolved / knowledge.no_hit / run.completed | 00 课 §8、01 课步骤 8 检查点、03/04 课审批正文 | 00/01/03/04 课（全量 20 种以 `lubanagent/runtime/sse.py` SSE_EVENT_MAP 为准） |
+| 异步工具：工具声明 `execution_mode: async` 后调用返回任务号，伴生工具 `task_result`/`task_stop`，开关 `TOOL_ASYNC_ENABLED` 默认关 | 04 课延伸阅读 | 手册 Tool 与 MCP「异步工具调用」、specs tool-mcp |
+| 注入预算：`knowledge.inline_budget_chars` / `memory.long_term_inline_budget_chars`（不配=全量注入零变化）+ `knowledge_read`/`memory_read` 伴生取回工具 | 05 课延伸阅读 | 手册知识与记忆「上下文注入预算」、specs knowledge-memory |
+| 外部 Watchdog：`WATCHDOG_ENABLED` 等四项设置默认关 + `GET /v1/watchdog/alerts` 查询告警 | 08 课延伸阅读 | 手册运行观测「外部 Watchdog」、specs watchdog |
 | 审批闭环：/chat 页气泡内「批准/拒绝」按钮消费 decide 端点（`POST /v1/approvals/{id}/decide {approved, decided_by}` → `{"status": "approved"}`），Run 恢复 | 03 课步骤 6、04 课步骤 6 | 03/04 课 |
 | 工作台页面路由：/agents、/agents/:key/debug、/prompts、/models、/tools、/skills、/knowledge、/graphs、/traces、/evals；用户端 /chat（含审批按钮） | 01 课步骤 6/7/9 | 01 课 |
 | 知识 API：`POST /v1/knowledge/sources`（multipart，8 格式）、`POST /v1/knowledge/query {source, query, top_k}` 检索测试 | 05 课主线 | 05 课 |

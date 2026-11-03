@@ -244,4 +244,4 @@ event: run.completed        ← Run 结束，带完整输出和结束原因
 
 开头我们说，这些发明都是被坑逼出来的。现在坑踩完了，接下来 8 课，我们把每个发明亲手落地——第 1 课，先让整个系统在你机器上跑起来，亲眼看一次带工具调用的真实对话。
 
-**延伸阅读**：[快速开始：三分钟认识 LubanAgent](../manual/getting-started.md)、[Agent Runtime](../manual/features/runtime.md) ｜ 涉及源码（第 1 课再打开也不迟）：`lubanagent/runtime/sse.py`（15 种事件的定义处）
+**延伸阅读**：[快速开始：三分钟认识 LubanAgent](../manual/getting-started.md)、[Agent Runtime](../manual/features/runtime.md) ｜ 涉及源码（第 1 课再打开也不迟）：`lubanagent/runtime/sse.py`（20 种事件的定义处）

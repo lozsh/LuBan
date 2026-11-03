@@ -317,5 +317,6 @@ curl -X POST http://localhost:8000/v1/tools/my_lib_lookup/test \
 **延伸阅读**
 
 - 手册：[Tool 与 MCP](../manual/features/tools-mcp.md)（含 MCP 外部工具接入与治理链路）
+- 进阶（默认关闭）：长任务不阻塞对话——工具声明 `execution_mode: async` 后调用立即返回任务号，模型用 `task_result`/`task_stop` 收取与终止，见手册 Tool 与 MCP「异步工具调用」
 - 参考产出：[reference/04-library_tools.py](https://github.com/lozsh/LuBan/blob/master/website/tutorial/reference/04-library_tools.py)
 - 对照范本：`app/tools/customer_service/order.py`（HTTP 调业务系统的真实模式）、`refund.py`（内置客服的高风险工具）
