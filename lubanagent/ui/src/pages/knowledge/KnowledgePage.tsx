@@ -454,7 +454,7 @@ function RetrievalTestPanel({ sources }: { sources: KnowledgeSourceOut[] }) {
 
   return (
     <div className="rounded-md border p-4">
-      <h2 className="mb-1 text-sm font-semibold">检索测试</h2>
+      <h2 className="mb-1 text-base font-semibold">检索测试</h2>
       <p className="mb-3 text-xs text-muted-foreground">
         输入查询看命中哪些块与相似度分数，用于校准 Agent YAML 里的 score_threshold。
       </p>

@@ -73,7 +73,7 @@ export default function TracesPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4">
       <header className="flex flex-wrap items-center gap-3">
-        <h1 className="text-lg font-semibold">Trace 列表</h1>
+        <h1 className="text-xl font-semibold">Trace 列表</h1>
         <Select value={agentFilter} onValueChange={setAgentFilter}>
           <SelectTrigger className="w-56" aria-label="按 Agent 筛选">
             <SelectValue placeholder="全部 Agent" />

@@ -123,7 +123,7 @@ export default function ChatPage() {
     <div className="flex h-screen flex-col bg-background text-foreground">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
         <MessageCircle className="h-5 w-5 shrink-0 text-primary" />
-        <h1 className="shrink-0 text-lg font-semibold">LubanAgent 聊天</h1>
+        <h1 className="shrink-0 text-xl font-semibold">LubanAgent 聊天</h1>
         <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
           <Select
             value={effectiveKey ?? undefined}

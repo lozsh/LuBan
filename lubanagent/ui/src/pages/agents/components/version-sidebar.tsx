@@ -27,7 +27,7 @@ export function VersionSidebar({ agentKey, currentVersion, viewing, onView }: Ve
   return (
     <aside className="flex w-72 shrink-0 flex-col border-l bg-card/30">
       <div className="border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">版本历史</h2>
+        <h2 className="text-base font-semibold">版本历史</h2>
         <p className="text-xs text-muted-foreground">保存即产生不可变新版本</p>
       </div>
       <div className="flex flex-wrap gap-1.5 border-b p-3">
@@ -45,7 +45,7 @@ export function VersionSidebar({ agentKey, currentVersion, viewing, onView }: Ve
           >
             v{version}
             {version === currentVersion && (
-              <Badge variant="secondary" className="px-1 py-0 text-[10px]">
+              <Badge variant="secondary" className="px-1 py-0 text-xs">
                 当前版
               </Badge>
             )}

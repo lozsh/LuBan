@@ -26,7 +26,7 @@ function MarkdownMessage({ text }: { text: string }) {
           ol: ({ children }) => <ol className="mb-2 list-decimal pl-5 last:mb-0">{children}</ol>,
           li: ({ children }) => <li className="mb-0.5">{children}</li>,
           h3: ({ children }) => (
-            <h3 className="mb-1 mt-2 text-sm font-semibold first:mt-0">{children}</h3>
+            <h3 className="mb-1 mt-2 text-base font-semibold first:mt-0">{children}</h3>
           ),
           h4: ({ children }) => (
             <h4 className="mb-1 mt-2 text-sm font-semibold first:mt-0">{children}</h4>
@@ -154,7 +154,7 @@ export function AssistantBubble({
             <span className="font-mono">{String(asRecord(approvalRequested.data).tool ?? '')}</span>
             {/** 可信决定人边界（H13）：决定以当前页面提供的身份提交并记录 decided_by；
              * 工作台不做逐人身份核验，共用同一 Key 的操作者在后端看来是同一主体 */}
-            <span className="block text-[11px] text-muted-foreground">
+            <span className="block text-xs text-muted-foreground">
               决定将以当前页面身份（decided_by）提交并留痕；不另做逐人身份核验。
             </span>
           </span>

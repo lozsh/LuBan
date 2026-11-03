@@ -120,7 +120,7 @@ export function TraceTimeline({ events }: { events: TraceEvent[] }) {
       {groups.map((group, index) => (
         <div key={index}>
           <div className="mb-1 flex items-center gap-2">
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
               {group.step === null ? 'Run 级' : `步骤 ${group.step}`}
             </span>
             <span className="h-px flex-1 bg-border" />

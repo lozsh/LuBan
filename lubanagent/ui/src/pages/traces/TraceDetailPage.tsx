@@ -153,7 +153,7 @@ export default function TraceDetailPage() {
             列表
           </Link>
         </Button>
-        <h1 className="text-lg font-semibold">Trace 回放</h1>
+        <h1 className="text-xl font-semibold">Trace 回放</h1>
         <span className="font-mono text-sm text-muted-foreground">{runId}</span>
         {traceQuery.data && (
           <span className="text-xs text-muted-foreground">

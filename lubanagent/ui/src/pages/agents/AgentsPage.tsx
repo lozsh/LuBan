@@ -29,7 +29,7 @@ export default function AgentsPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Agent 列表</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Agent 列表</h1>
           <p className="text-sm text-muted-foreground">
             定义即数据：点击卡片进入编辑器，保存即产生新版本。
           </p>

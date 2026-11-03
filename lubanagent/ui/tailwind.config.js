@@ -11,6 +11,16 @@ export default {
       screens: { '2xl': '1400px' },
     },
     extend: {
+      // 字号阶梯唯一来源（docs/design-docs/LubanAgent-ui-design-guidelines.md §2）：
+      // 管理平台口径，行高取 5px 倍数（GOV.UK 垂直节奏）；细注下限 13px、正文下限 15px
+      fontSize: {
+        xs: ['0.8125rem', { lineHeight: '1.25rem' }],
+        sm: ['0.9375rem', { lineHeight: '1.25rem' }],
+        base: ['1.0625rem', { lineHeight: '1.5625rem' }],
+        lg: ['1.1875rem', { lineHeight: '1.5625rem' }],
+        xl: ['1.375rem', { lineHeight: '1.875rem' }],
+        '2xl': ['1.5rem', { lineHeight: '1.875rem' }],
+      },
       colors: {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',

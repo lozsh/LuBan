@@ -100,7 +100,7 @@ export default function AgentDebugPage() {
             定义
           </Link>
         </Button>
-        <h1 className="text-lg font-semibold">运行调试台</h1>
+        <h1 className="text-xl font-semibold">运行调试台</h1>
         <span className="font-mono text-sm text-muted-foreground">{key}</span>
         {agent && (
           <Badge variant="outline" className="font-mono text-xs">

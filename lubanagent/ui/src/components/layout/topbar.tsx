@@ -32,7 +32,7 @@ export function Topbar() {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
       <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground">开发者工作台</span>
+        <span className="text-base font-medium text-muted-foreground">开发者工作台</span>
         <Badge variant={IS_MOCK ? 'secondary' : 'outline'} className="font-mono text-xs">
           {IS_MOCK ? 'mock' : 'live'}
         </Badge>

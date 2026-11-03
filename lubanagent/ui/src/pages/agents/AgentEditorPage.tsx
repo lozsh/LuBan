@@ -85,7 +85,7 @@ export default function AgentEditorPage() {
         <div className="space-y-4 p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-semibold tracking-tight">
+              <h1 className="text-xl font-semibold tracking-tight">
                 Agent 定义编辑器 — {key}
               </h1>
               <Badge variant="secondary">{STATUS_LABELS[draft.status] ?? draft.status}</Badge>

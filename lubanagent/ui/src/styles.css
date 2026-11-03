@@ -55,6 +55,14 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* 设计准则 §3：中文字体优先栈（离线优先，不引外部字体） */
+    font-family:
+      system-ui,
+      -apple-system,
+      'PingFang SC',
+      'Microsoft YaHei',
+      'Segoe UI',
+      sans-serif;
     font-feature-settings:
       'rlig' 1,
       'calt' 1;

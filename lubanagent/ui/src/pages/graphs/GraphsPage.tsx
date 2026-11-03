@@ -206,12 +206,12 @@ function Topology({ detail }: { detail: GraphDetailOut }) {
                 {nodeLabel(node)}
               </div>
               {node.name === detail.entry && (
-                <Badge variant="outline" className="mt-1 text-[10px]">
+                <Badge variant="outline" className="mt-1 text-xs">
                   START
                 </Badge>
               )}
               {!outgoing.has(node.name) && (
-                <Badge variant="outline" className="mt-1 text-[10px]">
+                <Badge variant="outline" className="mt-1 text-xs">
                   END
                 </Badge>
               )}
@@ -262,7 +262,7 @@ export default function GraphsPage() {
                   {graph.description || '—'}
                 </div>
                 {!graph.structure_available && (
-                  <Badge variant="outline" className="mt-1 text-[10px]">
+                  <Badge variant="outline" className="mt-1 text-xs">
                     非 DSL 构建，无结构视图
                   </Badge>
                 )}

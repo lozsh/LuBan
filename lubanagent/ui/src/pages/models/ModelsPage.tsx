@@ -35,11 +35,11 @@ function CapabilityBadges({ model }: { model: ModelDefinitionOut }) {
   return (
     <div className="flex flex-wrap gap-1">
       {CAPABILITY_BADGES.filter((name) => capability[name]).map((name) => (
-        <Badge key={name} variant="outline" className="font-mono text-[10px]">
+        <Badge key={name} variant="outline" className="font-mono text-xs">
           {name}
         </Badge>
       ))}
-      <span className="text-[10px] text-muted-foreground">
+      <span className="text-xs text-muted-foreground">
         ctx {capability.context_window} / out {capability.max_output}
       </span>
     </div>
