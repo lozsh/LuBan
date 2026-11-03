@@ -166,3 +166,17 @@ jobs:
         env:
           GUARD_BASE: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
         run: python3 scripts/check_upstream_guard.py --base "$GUARD_BASE"
+
+  # 冷启动端到端冒烟（D1-9 ⑥）：零密钥走通"migrate → init → 起服务 → SSE 对话客服 Agent"，
+  # 守住"克隆到第一个 Agent"体感不被 PR 悄悄破坏（PRD §8 冷启动硬指标）
+  cold-start:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: 安装依赖（uv.lock 冻结）
+        run: uv sync --frozen --extra dev
+      - name: 冷启动端到端冒烟（FakeLLM + SQLite 临时库）
+        run: uv run --no-sync python scripts/cold_start_smoke.py
