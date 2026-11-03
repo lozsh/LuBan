@@ -805,6 +805,11 @@ class AgentRuntime:
                 # 泄进本流：parent_ids 含工具 run_id 的事件不属于本 Run——子 Run 有自己的
                 # 事件流与用量账本，泄入会重复计费/串 token 流（代码强制隔离）
                 tool_run_ids: set[str] = set()
+                # 模型步序号快照：同一模型调用的 start/end 在事件流里相邻，但消费与图推进
+                # 解耦——图侧工具桥可能在本事件被消费前跑完并把 step_state["index"] +1。
+                # 序号在 on_chat_model_start 时刻快照、整步（token/用量/Step/COMPLETED）共用，
+                # started/completed 配对不随消费时机浮动（H10 契约：一一配对是适配器依据）
+                model_step_index = step_state["index"]
                 async for raw in event_stream:
                     kind = raw["event"]
                     if kind == "on_tool_start":
@@ -825,6 +830,7 @@ class AgentRuntime:
                         guard.check_time()
                     if kind == "on_chat_model_start":
                         model_step_started = datetime.now(UTC)
+                        model_step_index = step_state["index"]
                         # H10 事件 schema：started 载荷带 model_key + input（消息序列）
                         await emit(
                             _new_event(
@@ -834,7 +840,7 @@ class AgentRuntime:
                                     "model_key": resolution.definition.key,
                                     "input": _messages_payload(messages),
                                 },
-                                step_index=step_state["index"],
+                                step_index=model_step_index,
                             )
                         )
                     elif kind == "on_chat_model_stream":
@@ -845,7 +851,7 @@ class AgentRuntime:
                                     run_id,
                                     TraceEventType.MODEL_TOKEN_DELTA,
                                     {"text": text},
-                                    step_index=step_state["index"],
+                                    step_index=model_step_index,
                                 )
                             )
                     elif kind == "on_chat_model_end":
@@ -864,7 +870,7 @@ class AgentRuntime:
                         # 消费已入账本/共享池/本地值，失败/取消/重试路径消费不消失
                         await self._trace_writer.record_model_usage(
                             run_id,
-                            step_index=step_state["index"],
+                            step_index=model_step_index,
                             model_key=resolution.definition.key,
                             input_tokens=input_tokens,
                             output_tokens=output_tokens,
@@ -887,7 +893,7 @@ class AgentRuntime:
                                 else str(output.content)
                             )
                         step = Step(
-                            index=step_state["index"],
+                            index=model_step_index,
                             kind="model",
                             name=resolution.definition.key,
                             started_at=model_step_started or datetime.now(UTC),
@@ -922,7 +928,7 @@ class AgentRuntime:
                                     "output_tokens": output_tokens,
                                     "usage_known": usage_known,
                                 },
-                                step_index=step_state["index"],
+                                step_index=model_step_index,
                             )
                         )
                         step_state["index"] += 1
