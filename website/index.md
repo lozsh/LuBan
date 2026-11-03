@@ -30,7 +30,7 @@ features:
     link: /manual/features/models
   - icon: 🛡️
     title: 治理与观测内置
-    details: 步数 / 预算 / 超时 / 取消熔断，费用归因，Run / Trace 全程留痕可回放。
+    details: 步数 / 预算 / 超时 / 取消四道闸，费用归因，Run / Trace 全程留痕可回放。
     link: /manual/features/observability
   - icon: ⚙️
     title: 一个引擎两种用法

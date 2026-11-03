@@ -10,19 +10,32 @@ Python ≥3.11 + LangChain + LangGraph, MySQL in production (SQLite for zero-set
 
 ## Why LubanAgent
 
-LangGraph / CrewAI / AutoGen / Dify solve *orchestration* — but turning an agent into a product takes a large chunk of platform engineering that every team rebuilds from scratch:
+One-line positioning: **a production-grade agent starter base — code-first, deterministic rules enforced by code, governance (budget / cost attribution / approvals / crash recovery) built in, and a territory contract that stays mergeable with upstream.**
 
-- Agent definitions scattered across code — changing a persona requires a release
-- Switching models means changing code; no graceful degradation when a model is down
-- No incident forensics, no cost attribution, no upgrade discipline
+Against the three projects you're most likely to compare first:
 
-LubanAgent doesn't reinvent orchestration — it treats LangGraph as a dependency and layers the missing engineering base on top:
+- **vs Dify / Coze Studio**: they are low-code platforms for people who don't write code — visual orchestration lowers the bar, at the cost of deterministic business rules being hard to test and review like code. LubanAgent targets developers: business tools are plain Python, and deterministic rules (permissions / amounts / approvals) are enforced by code — full source, unit-testable, reviewable.
+- **vs Agno**: also a code-first agent platform, but without the "clone and move in + territory contract for upstream upgrades" layer — framework upgrades mean swapping a dependency, and your customization rides on their release train. In LubanAgent the repo *is* your project: your business code lives in the `app/` territory that upstream never touches, and you follow upgrades via `git merge`. Budget circuit-breaking with cost attribution and deterministic LangGraph pipelines are first-class here, too.
+- **vs OpenClaw**: a personal AI assistant gateway that wires models into dozens of IM channels for individual use. LubanAgent targets enterprise production: versioned definitions, deterministic rules enforced by code, budget circuit-breaking and cost attribution. Channel reach belongs to the commercial extension layer, not this repo — the open core only ships the `ChannelConnector` extension point.
+- **vs using LangChain / LangGraph / CrewAI directly**: they give you orchestration primitives; LubanAgent treats the orchestration engine as a dependency and fills in the engineering *around* it — versioned definitions, model factory, governance, evals, cost, deployment — the parts every team otherwise rebuilds.
+
+| Dimension | LubanAgent | Dify / Coze Studio | Agno |
+| --- | --- | --- | --- |
+| Who it's for | Engineering teams living in the source | Non-coders (business / ops) | Code-first agent developers |
+| Form | Full-source repo; clone it, modify it — the repo *is* your project | Visual platform; you configure inside it (self-hostable) | pip framework + AgentOS runtime + hosted control plane |
+| Agent definition | Versioned records in the DB, editable at runtime, no release needed | Visual configuration in the platform | Code-defined; components created via API/Studio support versioned publish & rollback |
+| Deterministic rules | Enforced by code: permissions / amounts / approvals run as LangGraph pipelines, not prompt gambles | Node / plugin configuration | Implemented in code |
+| Governance depth | Three-way budget gates (tokens / cost / duration), cost attribution, human approval for risky tools (persisted, concurrency-safe, resumable), fully recorded & replayable runs | Basic built-in observability | Tracing, HITL approvals, evals |
+| Modifying source & following upstream | First-class: territory isolation + upstream guard + territory-tagged CHANGELOG | N/A (platform form) | N/A (framework form; "following" = upgrading a dependency) |
+| Data boundary | No forced SaaS: observability defaults to self-hosted Langfuse; internal DB is the source of truth | Self-hosted keeps data local; cloud keeps it on the platform | SDK is open source; the control plane is a hosted service |
+
+On top of this positioning, the base ships with:
 
 | Capability | In one sentence |
 | --- | --- |
 | **Versioned agent definitions** | Persona / tools / rules live as versioned records in the database — change config without a release, effective at runtime |
 | **Model factory** | Four logical slots (fast / smart / cheap / vision) decouple agents from concrete models — switching a model is a DB mapping change |
-| **Governance** | Step / budget / timeout / cancellation circuit breakers, token estimation with cost attribution, fully recorded & replayable Runs and Traces |
+| **Governance** | Four guardrails (step / budget / timeout / cancellation), token estimation with cost attribution, fully recorded & replayable Runs and Traces |
 | **Engineering base** | API-key auth, CLI, migrations, CI, Docker delivery, plus a territory contract that keeps your changes mergeable with upstream |
 | **One engine, two usage modes** | Everyday agents = prebuilt + governance wrapping (no graphs to write); deterministic flows = hand-written LangGraph graphs; multi-agent = supervisor delegation — all share one DB, one governance, one deployment |
 | **Developer workbench** | 9 management pages (Agents / Prompts / Models / Tools / Skills / Knowledge / Flow graphs / Traces / Evals) + a user-facing chat entry (/chat), out of the box |
@@ -38,6 +51,23 @@ LubanAgent doesn't reinvent orchestration — it treats LangGraph as a dependenc
 **No black boxes**: full source code; deterministic rules (permissions / amounts / approvals) are enforced by code, not by prompt declarations. **No forced SaaS**: observability defaults to self-hosted Langfuse (data sovereignty), can switch to LangSmith or be disabled entirely; the internal DB is always the source of truth.
 
 > **First time here?** In a hurry → [30-minute tour of the built-in customer service demo](../demos/customer_service/README.md) (Chinese) ｜ Want to learn it properly — concepts, exercises, 8 lessons from zero to deployment → **[Tutorial](../website/tutorial/index.md)** (Chinese, also published as a standalone docs site under [website/](../website/))
+
+## See It in 60 Seconds
+
+Don't want to set up a Python environment? One Docker command brings up the full stack:
+
+```bash
+docker compose up -d --build   # ~3-5 minutes on first run, fast afterwards
+```
+
+1. **Talk to a real agent**: open <http://localhost:8000/chat>, tell the built-in customer-service agent you want to return a pair of shoes — watch it run triage and the refund flow;
+2. **See cost attribution**: open the workbench at <http://localhost:8000> → **Traces** → click the run you just made: which agent version, which model, which tools, how many tokens, how much money — fully recorded and replayable;
+3. **Change a definition, effective immediately**: edit the persona on the workbench **Agents** page, save, say one more sentence in `/chat` — the new definition is live, no release, no restart.
+
+> Zero-key caveat: without a model key, FakeLLM serves a fixed canned line — this verifies the pipeline, not the intelligence. For the real thing, plug in a model key per the Quick Start below.
+
+<!-- Demo GIF placeholder: replace after a manual 30s recording (guide in docs/demo-recording.md) -->
+<!-- <img src="assets/demo-60s.gif" alt="60-second demo: docker compose up → /chat conversation → Traces cost attribution → live persona change" width="100%"> -->
 
 ## Quick Start
 

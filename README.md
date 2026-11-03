@@ -4,42 +4,76 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![Engine](https://img.shields.io/badge/Engine-LangGraph-orange)
 
-**开源的 Agent 工程基座（Apache-2.0）：克隆仓库、配一个模型，第一天就能写自己的业务 Agent。**
+**Agent 开发，缺的从来不是编排框架，是工程基座。**
 
-> **English**: LubanAgent is an open-source (Apache-2.0) agent engineering base on Python ≥3.11 + LangChain + LangGraph — clone the repo, plug in a model, and ship your own agents. It layers the engineering teams otherwise rebuild themselves — versioned agent definitions in DB, a model factory with fast/smart/cheap/vision slots, governance with trace/budget/timeout, and a deployable workbench — on top of LangGraph. See [README.en.md](docs/README.en.md).
+用 LangChain 写个 Agent demo，一个下午就够。难的是往后那一步：预算失控没人拦，费用算不清归谁，高风险操作靠 Prompt 自觉，换个模型要改代码发版，Run 崩了连现场都查不到。很多团队在这个坎上把原型扔掉，从头再造一遍治理。
 
-Python ≥3.11 + LangChain + LangGraph，MySQL（开发期 SQLite 免安装），内置智能客服作为首个完整验证场景。
+Java 圈二十年前就用 Spring Boot 脚手架回答过这个问题：别让每个团队重复拼工程。LubanAgent 想给 Python Agent 圈当这个脚手架。它是开源（Apache-2.0）的 Agent 工程基座，克隆仓库、配一个模型，第一天就能写自己的业务 Agent；确定性规则由代码执行，预算、审批、崩溃恢复内建，改了源码也能长期跟上游升级。
+
+> **English**: Agent demos are easy in Python; production is not — budget overruns, unclear cost attribution, prompts acting as governance, models hardcoded. LubanAgent is the missing engineering base (Apache-2.0) on Python ≥3.11 + LangChain + LangGraph: clone the repo, plug in a model, and ship your own agents on day one. It layers what teams otherwise rebuild themselves on top of LangGraph: versioned agent definitions in DB, a model factory with fast/smart/cheap/vision slots, governance with trace/budget/timeout, and a deployable workbench. See [README.en.md](docs/README.en.md).
+
+Python ≥3.11 + LangChain + LangGraph，MySQL（开发期 SQLite 免安装）。内置的智能客服是首个完整验证场景：退货 Agent、FAQ、会话分诊、退款审批流，带 mock-biz 业务服务全链路跑通，不是玩具 demo。
 
 > **第一次来？** 赶时间看效果 → [30 分钟跑通内置客服](demos/customer_service/README.md) ｜ 想系统学会（含概念讲解与练习，8 课从零到部署）→ **[新手教程](website/tutorial/index.md)**（随[文档站](website/)发布，可独立部署）
 
 ## 为什么是 LubanAgent
 
-LangGraph / CrewAI / AutoGen / Dify 解决的是"编排"——但把 Agent 做成产品，编排之外还有一大块基础工程每个团队都要重复拼一遍：
+几个常被拿来比较的项目，差别在这里：
 
-- Agent 定义散落在代码里，改个人设就要发版
-- 换模型 = 改代码，模型降级没有开关
-- 出了问题没有现场，成本没有归因，升级没有章法
+- **Dify / Coze Studio** 是低代码平台，给不写代码的人用。可视化编排降低了门槛，但业务规则埋在节点配置里，难以像代码一样测试和审查。LubanAgent 面向开发者，业务 Tool 就是 Python 代码，可以单测、可以 review。
+- **Agno** 同样代码优先，但没有"克隆住进去"这一层：框架升级靠换依赖，你的定制跟着它的版本走。LubanAgent 的仓库就是你的项目，`app/` 领地放业务代码，上游不碰，`git merge` 跟版；预算熔断与费用归因、LangGraph 确定性图编排也都是一等能力。
+- **OpenClaw** 是个人 AI 助手网关：把模型挂进几十个 IM 渠道，让个人在聊天软件里随时使唤 Agent。LubanAgent 面向企业生产系统：定义版本化、确定性规则代码强制、预算熔断与费用归因。渠道触达属本仓库商用扩展层的经营范围，开源核心只留 `ChannelConnector` 扩展点。
+- 直接用 **LangChain / LangGraph / CrewAI**，拿到的是编排原语。LubanAgent 把编排引擎当依赖，补上编排之外的工程活：定义版本化、模型工厂、治理、评测、成本、部署。这些每个团队都要自己拼一遍。
 
-LubanAgent 不重造编排引擎——它把 LangGraph 当依赖，在其之上补齐这一层：
+| 维度 | LubanAgent | Dify / Coze Studio | Agno |
+| --- | --- | --- | --- |
+| 给谁用 | 长期住进源码的工程团队 | 不写代码的业务 / 运营人员 | 代码优先的 Agent 开发者 |
+| 形态 | 全源码仓库，克隆即改，仓库即项目 | 可视化平台，在平台里配置（可自部署） | pip 框架 + AgentOS 运行时 + 托管控制面 |
+| Agent 定义 | 存数据库、版本化、运行期可改不发版 | 平台内可视化配置 | 代码定义；API / Studio 创建的组件支持版本发布与回滚 |
+| 确定性规则 | 代码执行：权限 / 金额 / 审批走 LangGraph 流水线，不靠 Prompt 赌 | 节点 / 插件配置 | 代码实现 |
+| 治理成色 | 预算三道闸（token / 费用 / 时长）、费用归因、高风险 Tool 人工审批（持久化、并发安全、可恢复）、Run 全程留痕可回放 | 平台内置基础观测 | Tracing、HITL 审批、Evals |
+| 改源码 + 跟上游 | 一等能力：领地隔离 + upstream 守卫 + 领地标签 CHANGELOG | 平台形态不适用 | 框架形态不适用（跟版 = 升级依赖） |
+| 数据边界 | 无强制 SaaS：观测默认 Langfuse 自部署，内部 DB 唯一可信源 | 自部署版数据本地，云版数据在平台 | SDK 开源，Control Plane 为托管服务 |
+
+在这个定位之上，基座自带：
 
 | 能力 | 一句话 |
 | --- | --- |
 | **Agent 定义入库版本化** | Agent 的人设/工具/规矩是一份存库、版本化的定义，改配置不发版，运行期生效 |
 | **模型工厂** | fast / smart / cheap / vision 四个逻辑槽位解耦 Agent 与具体模型，换模型 = 改库映射 |
-| **治理层** | 步数 / 预算 / 超时 / 取消熔断，Token 估算与费用归因，Run / Trace 全程留痕可回放 |
+| **治理层** | 步数 / 预算 / 超时 / 取消四道闸，Token 估算与费用归因，Run / Trace 全程留痕可回放 |
 | **工程基座** | API Key 鉴权、CLI、迁移、CI、Docker 交付，以及"跟上游升级不丢你的改动"的领地契约 |
 | **一个引擎两种用法** | 日常 Agent = prebuilt + 治理包装（不写图）；确定性流程 = 手写 LangGraph 图；多 Agent supervisor 委派——三者同库同治理 |
 | **开发者工作台** | Agents / Prompt 库 / 模型 / 工具 / Skills / 知识库 / 流程图 / Traces / 评测 9 个管理页面 + 用户端聊天入口（/chat），开箱即用 |
 
-**工作台 Agents 页**（定义、版本、状态、进入调试台一屏管理）：
+工作台 Agents 页，定义、版本、状态、调试台入口在一屏：
 
 ![工作台 Agents 页](docs/assets/workbench-agents.png)
 
-**Trace 详情**（一次 Run 的完整现场：模型、工具调用、Token/费用，随时回放）：
+Trace 详情，一次 Run 的完整现场（模型、工具调用、Token/费用），随时回放：
 
 ![Trace 详情](docs/assets/workbench-trace.png)
 
-**没有黑盒**：全源码，确定性规则（权限/金额/审批）由代码执行，不靠 Prompt 声明。**没有强制 SaaS**：观测默认 Langfuse 自部署保数据主权，可切 LangSmith 或完全关闭，内部 DB 始终是 source of truth。
+全源码没有黑盒，权限、金额、审批这类确定性规则由代码执行，不靠 Prompt 声明。观测默认 Langfuse 自部署，数据在自己手里，也可切 LangSmith 或完全关闭；内部 DB 始终是 source of truth，没有强制 SaaS。
+
+## 先跑起来看看
+
+不想配 Python 环境的话，Docker 一条命令起全栈：
+
+```bash
+docker compose up -d --build   # 首次约 3-5 分钟，之后秒起
+```
+
+然后看三样东西：
+
+1. 打开 <http://localhost:8000/chat>，对内置客服说一句"我买的鞋子想退货"，看它走完分诊和退款流程；
+2. 打开 <http://localhost:8000> 进工作台，Traces 里点开刚才那次 Run：哪个 Agent 版本、哪个模型、调了哪些工具、多少 Token、多少钱，全程留痕可回放；
+3. 回到工作台 Agents 页，改一句人设保存，再到 `/chat` 说句话。新定义已经生效，没发版、没重启。
+
+> 零密钥口径：不配模型 Key 时由 FakeLLM 兜底（固定台词），验证的是链路不是智力；想看真智力，按下一步「快速开始」接一个真模型。
+
+<!-- 演示 GIF 占位：人工录制 30s 后替换（录制指引见 docs/demo-recording.md） -->
+<!-- <img src="docs/assets/demo-60s.gif" alt="60 秒演示：docker compose 起栈 → /chat 对话 → Traces 费用归因 → 改人设即时生效" width="100%"> -->
 
 ## 快速开始
 
@@ -54,7 +88,7 @@ cp app/config/.env.example .env   # 零配置也能起：SQLite + FakeLLM 兜底
 .venv/bin/python -m pytest        # 全量测试（零外部密钥）
 ```
 
-验证 Agent 真的能说话（无需模型 Key，FakeLLM 兜底——回复为固定台词，验证的是链路；真智力见下一步接真模型）：
+验证 Agent 真的能说话（无需模型 Key，FakeLLM 兜底，回复为固定台词，验证的是链路；想看真智力，见下一步接真模型）：
 
 ```bash
 .venv/bin/uvicorn app.main:create_app --factory --port 8000 &
@@ -132,7 +166,7 @@ cd website && DOCS_BASE=/<仓库名>/ npm run build && npm run preview
 
 ## 仓库布局：你住哪里，框架住哪里
 
-LubanAgent 是一个**生产级起步基座**（类似 Java 圈的若依 / Spring Boot 脚手架之于业务系统）——你克隆仓库后长期住进去迭代、上生产，不是搭完就扔的原型。为此仓库划分了三块领地：
+LubanAgent 是一个生产级起步基座，定位类似 Java 圈的若依 / Spring Boot 脚手架：你克隆仓库后长期住进去迭代、上生产，不是搭完就扔的原型。为此仓库划分了三块领地：
 
 ```text
 lubanagent/   框架领地 —— 上游追踪，你原则上不动
@@ -148,7 +182,7 @@ demos/ tests/ docs/ migrations/   共享领地
 
 ## 还内置了一套方法论
 
-仓库自带 [spec-coding](.claude/skills/spec-coding/) skill（规格驱动开发闭环：意图 → 契约 → 编码 → 独立严审）：正向把开发意图落成可验证契约再编码；逆向把代码演进同步回资产文档。开发本仓库用它，你开发自己的 Agent 也可以用它——克隆即用，语言无关。
+仓库自带 [spec-coding](.claude/skills/spec-coding/) skill（规格驱动开发闭环：意图 → 契约 → 编码 → 独立严审）：正向把开发意图落成可验证契约再编码；逆向把代码演进同步回资产文档。开发本仓库用它，你开发自己的 Agent 也可以用，克隆即用，语言无关。
 
 ## 我该看哪份文档（按人群）
 

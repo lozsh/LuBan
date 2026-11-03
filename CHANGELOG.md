@@ -17,6 +17,18 @@
 - `[framework]` **外部 Watchdog**（`WATCHDOG_ENABLED`，默认关闭）：独立于执行引擎的定时巡检，RUNNING Run 事件断流（`stale_events`）或运行超上限（`long_running`）即告警——落目标 Run 的 Trace，`GET /v1/watchdog/alerts` 可查；默认只告警不处置，可插拔 `WatchdogActionHandler` 自动处置（内置 `CancelHandler` 取消示例）。
 - `[shared]` 新增能力配套测试与 OpenAPI 快照更新；三能力使用手册章节同步（Tool 与 MCP / 知识与记忆 / 运行观测 / SSE 事件全表 15→20 种）。合并指令：`[framework]`/`[shared]` 正常合并，均为新增可选能力、默认关闭或默认不配置，存量行为零变化。
 
+### CI 与交付
+
+- `[shared]` 新增冷启动端到端冒烟（D1-9 ⑥ 收官）：`scripts/cold_start_smoke.py` 零密钥走通「migrate → init --fill-missing → uvicorn 起服务 → /health → 工作台 / 与 /chat（ui/dist 存在时）→ SSE 对话 customer-service-bot（断言 run.started / run.completed、无 run.failed）」，临时 SQLite 库 + 随机端口 + 240s 总死线；CI 新增 `cold-start` job 调用（`.github/workflows/ci.yml`），兑现 PRD §8"冷启动体感由 CI 端到端回归守卫"承诺。
+
+### UI 设计准则
+
+- `[framework]` 新增工作台 UI 设计准则（`docs/design-docs/LubanAgent-ui-design-guidelines.md`），口径综合 GOV.UK Design System type scale、Ant Design、Fluent 2、Material 3、GitHub Primer 与 WCAG 2.1：字号阶梯唯一来源钉在 `tailwind.config.js`（细注下限 13px、正文下限 15px、body 17px、行高取 5px 倍数）；全站字号相应上调（原 `text-xs` 12px 作主力的问题清除）；标题层级语义钉死（页面标题 h1=text-xl、区块标题与侧边栏菜单=text-base，全部存量降档标题已归位）；清理全部 `text-[10px]/[11px]` 例外值为 `text-xs`；body 声明中文字体优先栈。前端 85 测试通过、lint 0 错误。
+
+### 依赖升级
+
+- `[framework]` LangGraph / LangChain 升级至最新稳定版（uv.lock 落盘）：langgraph 1.2.15 → 1.2.16、langchain-core 1.6.10 → 1.6.12、langgraph-prebuilt 1.1.0 → 1.1.1、langgraph-sdk 0.4.7 → 0.4.8、langsmith 0.14.8 → 0.14.11（langchain-openai 1.7.2、langgraph-checkpoint 4.3.0 已为最新未动；均为 patch 级，无 API 变更）。零代码改动，经全量回归验证（时点数字：897 测试通过 + ruff + import-linter 20 项契约全 KEPT；随后续功能合入全仓数字会继续增长，以最新 CI 为准）。pyproject 下限约束不变（`>=1.2.9` / `>=1.5` 语义为已验证最低兼容线）；mcp 维持 `>=1.9,<2` 不动。
+
 ## [1.0.0] - 2026-10-20 · 正式开源
 
 **LubanAgent 首个公开版本**：开源（Apache-2.0）的 Agent 工程基座。Python ≥3.11 + LangChain + LangGraph，MySQL 8（开发期 SQLite 免安装），内置智能客服作为首个完整验证场景。克隆仓库、配一个模型，第一天就能写自己的业务 Agent。
@@ -25,7 +37,7 @@
 
 - **Agent 定义入库版本化**：人设 / 工具 / 规矩是一份存库、版本化的定义，改配置不发版，运行期生效；YAML 仅用于初始化导入与导出迁移。
 - **模型工厂**：fast / smart / cheap / vision 四个逻辑槽位解耦 Agent 与具体模型，OpenAI 兼容协议优先（DeepSeek / Qwen / GLM / vLLM / Ollama 一个客户端全覆盖），换模型 = 改库映射，不改代码不发版。
-- **治理层**：步数 / 预算 / 超时 / 取消熔断，Token 账本与费用归因（Run 树成本报表），Run / Trace 全程留痕可回放；确定性规则（权限 / 金额 / 审批）由代码执行，不靠 Prompt 声明。
+- **治理层**：步数 / 预算 / 超时 / 取消四道闸，Token 账本与费用归因（Run 树成本报表），Run / Trace 全程留痕可回放；确定性规则（权限 / 金额 / 审批）由代码执行，不靠 Prompt 声明。
 - **一个引擎两种用法 + 多 Agent 编排**：日常 Agent = prebuilt + 治理包装（不写图）；确定性流程 = 手写 LangGraph 图；多 Agent = supervisor 委派（指定入口成员 / 扇出并行 / 防乒乓上限）——三者同库同治理，编排 Run 是会话 Run 的子 Run（预算继承、取消传播）。
 - **可恢复运行**：普通 Agent Run 逐步 checkpoint，崩溃后通用 resume API 续跑（预算不重复放水、Trace 连续）。
 - **审批持久化**：人工审批决定落库、跨重启可审计、并发裁决原子。
