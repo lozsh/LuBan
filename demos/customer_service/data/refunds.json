@@ -1,1 +1,16 @@
-[]
+[
+  {
+    "refund_id": "RFD-0001",
+    "order_id": "ORD-1001",
+    "amount": 299.0,
+    "reason": "用户想退款",
+    "status": "created"
+  },
+  {
+    "refund_id": "RFD-0002",
+    "order_id": "ORD-1001",
+    "amount": 299.0,
+    "reason": "用户申请退款",
+    "status": "created"
+  }
+]
