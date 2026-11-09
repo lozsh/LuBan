@@ -1,6 +1,6 @@
 name: docs
 
-# 用户文档站（教程 + 使用手册）构建与部署：GitHub Pages 独立发布
+# 用户文档站（项目介绍 + 开发指南 + 使用手册）构建与部署：GitHub Pages 独立发布
 on:
   push:
     branches: [master]

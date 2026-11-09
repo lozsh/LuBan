@@ -1,4 +1,4 @@
-# 第 7 课参考产出（一）：app/graphs/my_library_flow.py
+# 流程与团队参考产出（一）：app/graphs/my_library_flow.py
 
 """逾期处理流水线（确定性图编排）：查逾期 → 分级 → 严重逾期人工确认 → 处罚 → 通知。"""
 
@@ -11,10 +11,10 @@ SEVERE_OVERDUE_DAYS = 30  # 严重逾期线：超过则冻结借阅权（需人�
 
 
 def _load_overdue(state: dict[str, Any]) -> dict[str, Any]:
-    """按学号查借阅记录，算出逾期最重的一册（复用第 4 课的工具，不绕过治理）。"""
+    """按学号查借阅记录，算出逾期最重的一册（复用业务工具，不绕过治理）。"""
     tool = default_registry.get_tool("my_lib_lookup")
     records = tool.handler(student_id=state["student_id"])["records"]
-    # 教程演示：以固定"今天"为基准算逾期天数
+    # 示例演示：以固定"今天"为基准算逾期天数
     from datetime import date
     today = date(2026, 9, 9)
     worst = max(records, key=lambda r: (today - date.fromisoformat(r["due"])).days)
@@ -27,10 +27,11 @@ def _needs_confirm(state: dict[str, Any]) -> bool:
 
 
 def _apply_penalty(state: dict[str, Any]) -> dict[str, Any]:
-    # 教程故意留的洞：frozen 由逾期天数算出，不读 confirm_freeze 的人工确认值——
-    # resume(..., False) 拒绝后流程照样冻结，把这根线接上是练习 B（不改逻辑本身）
+    # 拒绝或缺少人工确认时，不允许冻结借阅权限。
     days = state["overdue_days"]
-    return {"penalty": round(days * 0.1, 1), "frozen": days > SEVERE_OVERDUE_DAYS}
+    approved = state.get("confirm_freeze") is True
+    return {"penalty": round(days * 0.1, 1),
+            "frozen": days > SEVERE_OVERDUE_DAYS and approved}
 
 
 def _notify(state: dict[str, Any]) -> dict[str, Any]:
@@ -65,7 +66,7 @@ def my_library_flow_builder() -> Any:
 
 
 # ============================================================
-# 第 7 课参考产出（二）：app/multiagents/my_library_team.py
+# 流程与团队参考产出（二）：app/multiagents/my_library_team.py
 
 # """图书馆咨询台团队：triage 调度 + 借阅事务/规章专家两成员。"""
 #
@@ -83,6 +84,6 @@ def my_library_flow_builder() -> Any:
 #     return builder.build()
 
 # ============================================================
-# 第 7 课参考产出（三）：app/agents/my_lib_triage.yaml（supervisor，JSON 决策指令）
-# 与 app/agents/my_lib_rules.yaml（规章专家，纯 RAG + 守门——同第 5 课的 knowledge 段）
+# 流程与团队参考产出（三）：app/agents/my_lib_triage.yaml（supervisor，JSON 决策指令）
+# 与 app/agents/my_lib_rules.yaml（规章专家，纯 RAG + 守门——参照知识检索指南的 knowledge 配置）
 # 见 website/tutorial/reference/07-triage-and-rules.yaml

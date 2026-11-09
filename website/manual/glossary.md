@@ -28,5 +28,5 @@
 | ChannelConnector | 框架留给渠道层的扩展点 Protocol，核心不依赖它也能独立运行 | [接入业务系统](./customization/business-integration.md) |
 | 会话状态机 | AI 接待 ↔ 人工待接管 ↔ 人工接待 三态流转，属渠道层 | [项目架构](./architecture.md) |
 | 出站风控 | 回复发出去前的审核（敏感词、承诺风险、平台规则），属渠道层 | [项目架构](./architecture.md) |
-| 领地 | 仓库物理隔离：`lubanagent/` 框架领地（少改）与 `app/` 用户领地（你改业务的地方），合并上游无痛 | [改造总览](./customization/overview.md) |
+| 领地 | 仓库物理隔离：`lubanagent/` 框架领地（少改）与 `app/` 用户领地（你改业务的地方），减少上游合并冲突，不承诺零冲突 | [改造总览](./customization/overview.md) |
 | spec-coding | 本仓库内置的规格驱动开发 skill：spec→契约→编码→严格验证闭环，也是你开发自己 Agent 的方法论 | [用 spec-coding 开发你的 Agent](./customization/spec-coding.md) |

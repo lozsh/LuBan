@@ -1,6 +1,6 @@
-# 第 2 课参考产出：app/agents/my_lib_assistant.yaml
-# 这是主线项目图书馆借阅助手的初始定义（第 2 课结束时的状态）。
-# 第 4/5 课会回来加 tools 和 knowledge 段，第 6 课配评测，第 7 课上图和团队。
+# 创建自己的 Agent参考产出：app/agents/my_lib_assistant.yaml
+# 这是主线项目图书馆借阅助手的初始定义（创建自己的 Agent结束时的状态）。
+# 工具与知识检索指南会回来加 tools 和 knowledge 段，评测与回归配评测，流程与多 Agent上图和团队。
 
 name: my-lib-assistant
 description: 图书馆借阅助手：查借阅记录、校园卡挂失、馆藏规章咨询

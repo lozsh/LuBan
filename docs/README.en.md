@@ -50,7 +50,7 @@ On top of this positioning, the base ships with:
 
 **No black boxes**: full source code; deterministic rules (permissions / amounts / approvals) are enforced by code, not by prompt declarations. **No forced SaaS**: observability defaults to self-hosted Langfuse (data sovereignty), can switch to LangSmith or be disabled entirely; the internal DB is always the source of truth.
 
-> **First time here?** In a hurry → [30-minute tour of the built-in customer service demo](../demos/customer_service/README.md) (Chinese) ｜ Want to learn it properly — concepts, exercises, 8 lessons from zero to deployment → **[Tutorial](../website/tutorial/index.md)** (Chinese, also published as a standalone docs site under [website/](../website/))
+> **First time here?** Read the [project introduction and comparisons](../website/manual/introduction.md) (Chinese), then follow the [quick start](../website/manual/getting-started.md) or choose a task in the [development guide](../website/tutorial/index.md). See the [online documentation](https://lozsh.github.io/LuBan/).
 
 ## See It in 60 Seconds
 
@@ -147,7 +147,7 @@ Most docs are in Chinese; the code and workbench UI are the universal language.
 
 | Who you are | Start here |
 | --- | --- |
-| **New here, want to understand what this is** | This README + [Tutorial lesson 0](../website/tutorial/00-primer.md) (Chinese) |
+| **New here, want to understand what this is** | [Project introduction and comparisons](../website/manual/introduction.md) (Chinese) + this README |
 | **Want to run it locally** | "Quick Start" in this README; for the workbench pages, see [User manual · Workbench](../website/manual/features/workbench.md) (Chinese) |
 | **Building your own business agents (living in this repo)** | [User manual](../website/manual/index.md) (Chinese): features (agent definitions / models / tools / skills) → graph orchestration → multi-agent; for customization see the [customization guide](../website/manual/customization/overview.md), and follow [UPGRADE.md](UPGRADE.md) to track upstream |
 | **Deploying / operating it** | "One-command Full Stack" in this README + [UPGRADE.md](UPGRADE.md) (production checklist) + [User manual · Deploy](../website/manual/deploy.md) (Chinese) |
@@ -158,7 +158,7 @@ Most docs are in Chinese; the code and workbench UI are the universal language.
 | Doc | Contents |
 | --- | --- |
 | [User manual](../website/manual/index.md) (Chinese) | Every feature in "what / why / how / boundaries" form + API reference + customization guide |
-| [Tutorial](../website/tutorial/index.md) (Chinese) | 8+1 hands-on lessons from zero to deployment (docs site source in [website/](../website/)) |
+| [Development guide](../website/tutorial/index.md) (Chinese) | Task-oriented guides: create agents, connect models, write tools, add knowledge, evaluate, orchestrate and deploy |
 | [Architecture design](design-docs/LubanAgent-architecture-design.md) (Chinese) | Directory layout, territory isolation, module relations, key decisions |
 | [Module specs](specs/index.md) (Chinese) | Interface / data / behavior / boundary specs for 13 modules |
 | [CHANGELOG](../CHANGELOG.md) / [UPGRADE](UPGRADE.md) | Changes and upgrade guide (territory-tagged) |

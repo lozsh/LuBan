@@ -1,4 +1,4 @@
-# 第 4 课参考产出：app/tools/my_library/ 包（两个文件 + __init__.py）
+# 业务工具参考实现：app/tools/my_library/ 包（两个文件 + __init__.py）
 # 文件一 lookup.py（低风险只读）：
 
 from lubanagent.core import RiskLevel
@@ -12,7 +12,7 @@ _BORROWS: dict[str, list[dict]] = {
         {"title": "机器学习系统设计", "due": "2026-09-12", "renewals_left": 0},
     ],
 }
-# 第 7 课步骤 2 会把 _BORROWS 换成含逾期案例的版本（日期改早 + 加一个轻度逾期读者），见 07 课文。
+# 流程指南的步骤 2 会把 _BORROWS 换成含逾期案例的版本（日期改早 + 加一个轻度逾期读者），见流程与多 Agent 指南。
 
 
 @tool(
@@ -60,5 +60,5 @@ def my_lib_report_loss(student_id: str) -> dict:
 # 文件三 __init__.py（导入即注册）：
 #     from . import lookup, report_loss  # 导入即注册
 #
-# Agent YAML 的 tools 段（本课结束时）：
+# Agent YAML 的 tools 段（配置完成后）：
 #     tools: [my_lib_lookup, my_lib_report_loss]

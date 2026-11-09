@@ -1,13 +1,14 @@
 # 使用手册
 
-> 这本手册回答"某个功能的全部字段、所有选项、所有边界"。你应该是**正在用 LubanAgent 搭建或改造自己的系统**——用到哪页翻哪页。
->
-> 每个功能页统一四段：**是什么 / 为什么需要 / 怎么用 / 边界**。第一次学请走[教程](../tutorial/index.md)，这里假设你已经知道 Agent、Tool、RAG 这些词是什么意思。
+这里按功能介绍 LubanAgent 的配置、调用方式和限制，用到哪一页就查哪一页。
+
+第一次了解项目，先读[项目介绍](./introduction.md)，判断它是否适合你的业务。决定试用后看[快速开始](./getting-started.md)；加入自己的工具、模型和知识库时，可以参考[开发指南](../tutorial/index.md)。不熟悉的术语见[术语表](./glossary.md)。
 
 ## 手册结构
 
 | 分区 | 回答什么问题 |
 | --- | --- |
+| [项目介绍](./introduction.md) | 项目是什么、为什么使用、适用场景和同类项目选型 |
 | [快速开始](./getting-started.md) | 从克隆到第一次对话，最短路径 |
 | [项目架构](./architecture.md) | 系统分层、领地隔离、一次 Run 的数据流、部署拓扑——四张图 |
 | [功能手册](./features/agent-definition.md) | 14 个功能逐一展开：定义 / Prompt 库 / 模型工厂 / Runtime / Tool·MCP / Skill / 知识记忆 / 观测 / 评测 / 成本 / 图编排 / 多 Agent / 工作台 / 内置客服 |
@@ -24,4 +25,4 @@
 
 ## 覆盖范围
 
-本手册覆盖开源核心（F1-F13，Apache-2.0）。消息渠道接入、会话状态机、出站风控属商用渠道层（F14-F16），开源版不含；开源用户可通过框架的 `ChannelConnector` 扩展点自行接入外部渠道（见[接入业务系统](./customization/business-integration.md)）。
+本手册覆盖 Apache-2.0 开源核心。现成的 IM / 电商消息渠道连接器不包含在本仓库中；外部业务系统可以通过 REST / SSE 或 `ChannelConnector` 扩展点自行接入，见[接入业务系统](./customization/business-integration.md)。

@@ -49,7 +49,7 @@ LubanAgent/
 │   ├── graphs/      你的确定性流程（约定扫描入口）
 │   ├── skills/      你的 Skill 包
 │   └── config/      环境配置（.env）
-├── website/       用户文档站（教程 + 手册，VitePress，独立部署）
+├── website/       用户文档站（开发指南 + 手册，VitePress，独立部署）
 ├── docs/          开发用文档（设计文档 / 模块规格 / 契约）——面向贡献者与 AI 协作工具
 ├── demos/         内置客服示例（活文档）
 ├── tests/  migrations/  docker/  scripts/   共享领地

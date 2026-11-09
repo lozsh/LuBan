@@ -3,6 +3,8 @@ import { withMermaid } from 'vitepress-plugin-mermaid';
 
 // GitHub Pages 项目页部署时用 DOCS_BASE=/<repo>/ npm run build 覆盖
 const base = process.env.DOCS_BASE || '/';
+const logo = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#0f766e"/><path d="M14 12v24h20v-7H21V12Z" fill="#fff"/><path d="M28 12h6v10h-6Z" fill="#99f6e4"/></svg>`;
+const logoUrl = `data:image/svg+xml,${encodeURIComponent(logo)}`;
 
 // 侧栏配置：必须放在 themeConfig.sidebar（默认主题从 theme 读取 sidebar），
 // 写在 defineConfig 顶层会被静默忽略，导致全站文章页没有左侧菜单
@@ -10,42 +12,42 @@ const sidebar = {
   // ------------------------------------------------ 教程（线性课程）
   '/tutorial/': [
     {
-      text: '开篇',
-      items: [{ text: '开篇词：8 课从零到部署', link: '/tutorial/' }],
+      text: '开发指南',
+      items: [{ text: '开发指南导航', link: '/tutorial/' }],
     },
     {
-      text: '入门篇',
+      text: '基础使用',
       collapsed: false,
       items: [
-        { text: '第 0 课 · 认识 Agent', link: '/tutorial/00-primer' },
-        { text: '第 1 课 · 跑起来', link: '/tutorial/01-setup-and-first-run' },
-        { text: '第 2 课 · 第一个自己的 Agent', link: '/tutorial/02-first-agent' },
+        { text: '认识 Agent', link: '/tutorial/00-primer' },
+        { text: '跑起来', link: '/tutorial/01-setup-and-first-run' },
+        { text: '第一个自己的 Agent', link: '/tutorial/02-first-agent' },
       ],
     },
     {
-      text: '核心篇',
+      text: '能力扩展',
       collapsed: false,
       items: [
-        { text: '第 3 课 · 接真实模型', link: '/tutorial/03-real-models' },
-        { text: '第 4 课 · 写自己的 Tool', link: '/tutorial/04-write-a-tool' },
-        { text: '第 5 课 · 给 Agent 加知识', link: '/tutorial/05-knowledge-rag' },
-        { text: '第 6 课 · 用评测保质量', link: '/tutorial/06-evals' },
+        { text: '接真实模型', link: '/tutorial/03-real-models' },
+        { text: '写自己的 Tool', link: '/tutorial/04-write-a-tool' },
+        { text: '给 Agent 加知识', link: '/tutorial/05-knowledge-rag' },
+        { text: '用评测保质量', link: '/tutorial/06-evals' },
       ],
     },
     {
-      text: '进阶篇',
+      text: '流程与团队',
       collapsed: false,
-      items: [{ text: '第 7 课 · 确定性流程与多 Agent', link: '/tutorial/07-graphs-and-teams' }],
+      items: [{ text: '确定性流程与多 Agent', link: '/tutorial/07-graphs-and-teams' }],
     },
     {
-      text: '上线篇',
+      text: '部署运维',
       collapsed: false,
-      items: [{ text: '第 8 课 · 部署上生产', link: '/tutorial/08-deploy' }],
+      items: [{ text: '部署上生产', link: '/tutorial/08-deploy' }],
     },
     {
-      text: '结课',
+      text: '接入与验收',
       collapsed: false,
-      items: [{ text: '结课 · 毕业设计与验收', link: '/tutorial/09-graduation' }],
+      items: [{ text: '业务接入与验收', link: '/tutorial/09-graduation' }],
     },
   ],
   // ------------------------------------------------ 使用手册（字典式）
@@ -54,6 +56,7 @@ const sidebar = {
       text: '开始',
       collapsed: false,
       items: [
+        { text: '项目介绍', link: '/manual/introduction' },
         { text: '手册导航', link: '/manual/' },
         { text: '快速开始', link: '/manual/getting-started' },
         { text: '项目架构', link: '/manual/architecture' },
@@ -117,26 +120,27 @@ export default withMermaid(
   defineConfig({
     lang: 'zh-CN',
     title: 'LubanAgent',
-    description: '开源 Agent 工程基座：教程 + 使用手册',
+    description: '面向开发者的开源 Agent 工程基座：项目介绍、开发指南、功能与 API 手册',
     base,
     lastUpdated: true,
     ignoreDeadLinks: [
-      // 本机服务地址（localhost:8000/5173/3000 等）是课文里的操作目标，不是站内链接
+      // 本机服务地址（localhost:8000/5173/3000 等）是操作示例里的目标地址，不是站内链接
       /^https?:\/\/localhost/,
     ],
     head: [
       // 内联 SVG favicon，避免 favicon.ico 404
-      ['link', { rel: 'icon', type: 'image/svg+xml', href: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%B0%3C/text%3E%3C/svg%3E" }],
+      ['link', { rel: 'icon', type: 'image/svg+xml', href: logoUrl }],
       // 社交分享元信息（对齐 Vite 官网做法）
       ['meta', { property: 'og:type', content: 'website' }],
       ['meta', { property: 'og:title', content: 'LubanAgent 文档' }],
       ['meta', { property: 'og:site_name', content: 'LubanAgent' }],
-      ['meta', { property: 'og:description', content: '开源 Agent 工程基座：8 课新手教程 + 字典式使用手册' }],
-      ['meta', { name: 'theme-color', content: '#5b5ef4' }],
+      ['meta', { property: 'og:description', content: '开源 Agent 工程基座：完整源码、模型接入、多 Agent、监控与部署' }],
+      ['meta', { name: 'theme-color', content: '#0f766e' }],
     ],
     themeConfig: {
       sidebar,
-      siteTitle: 'LubanAgent 文档',
+      siteTitle: 'LubanAgent',
+      logo: { src: logoUrl, alt: 'LubanAgent' },
       search: {
         provider: 'local',
         options: {
@@ -166,7 +170,9 @@ export default withMermaid(
       },
       nav: [
         { text: '首页', link: '/', activeMatch: '^/$' },
-        { text: '教程', link: '/tutorial/', activeMatch: '/tutorial/' },
+        { text: '项目介绍', link: '/manual/introduction', activeMatch: '/manual/introduction' },
+        { text: '快速开始', link: '/manual/getting-started', activeMatch: '/manual/getting-started' },
+        { text: '开发指南', link: '/tutorial/', activeMatch: '/tutorial/' },
         { text: '使用手册', link: '/manual/', activeMatch: '/manual/' },
         {
           text: '更多',

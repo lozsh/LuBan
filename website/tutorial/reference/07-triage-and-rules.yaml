@@ -1,4 +1,4 @@
-# 第 7 课参考产出（三）：supervisor 与规章专家两个 Agent YAML
+# 流程与多 Agent参考产出（三）：supervisor 与规章专家两个 Agent YAML
 
 # 文件一 app/agents/my_lib_triage.yaml（supervisor——只做分流，输出 JSON 决策）：
 

@@ -1,35 +1,31 @@
 /**
  * LubanAgent 文档站品牌样式
- * 定制惯例参考高星 VitePress 项目（Vite / Vitest / Element Plus）：
- * 1) 品牌色统一走 --vp-c-brand-* 变量  2) 正文加大字号、放宽行高（中文阅读友好）
- * 3) hero 渐变标题  4) 特性卡片圆角 + 悬浮反馈  5) 代码块圆角
+ * 深青色、单色线条图标与克制的卡片样式；中文正文优先保证可读性。
  */
 
 :root {
-  /* 品牌色：靛蓝 → 青绿的"匠造"渐变基调 */
-  --vp-c-brand-1: #5b5ef4;
-  --vp-c-brand-2: #767af8;
-  --vp-c-brand-3: #8b8efa;
-  --vp-c-brand-soft: rgba(91, 94, 244, 0.14);
+  /* 品牌色：深青色。 */
+  --vp-c-brand-1: #0f766e;
+  --vp-c-brand-2: #0d9488;
+  --vp-c-brand-3: #0f766e;
+  --vp-c-brand-soft: rgba(15, 118, 110, 0.1);
 
   --vp-font-family-base:
-    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
   /* 加宽内容区（默认约 688px，中文长段落太窄） */
   --vp-layout-max-width: 1400px;
 
-  /* hero 渐变标题（参考 Vite 官网） */
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(120deg, #5b5ef4 30%, #42d392);
-
-  /* hero 背景光晕 */
-  --vp-home-hero-background-color: rgba(91, 94, 244, 0.08);
+  --vp-home-hero-name-color: var(--vp-c-brand-1);
+  --vp-home-hero-name-background: none;
 }
 
 .dark:root {
-  --vp-c-brand-soft: rgba(118, 122, 248, 0.18);
-  --vp-home-hero-background-color: rgba(118, 122, 248, 0.12);
+  --vp-c-brand-1: #5eead4;
+  --vp-c-brand-2: #99f6e4;
+  --vp-c-brand-3: #0f766e;
+  --vp-c-brand-soft: rgba(94, 234, 212, 0.1);
 }
 
 /* ---------- 正文排版：字号 + 行高（中文友好） ---------- */
@@ -73,34 +69,53 @@
 /* ---------- 首页 ---------- */
 
 .VPHero .tagline {
-  font-size: 20px;
+  font-size: 19px;
   line-height: 1.7;
-  max-width: 640px;
+  max-width: 720px;
 }
 
 .VPButton.brand {
   font-size: 17px;
   padding: 0 24px;
-  border-radius: 12px;
+  border-radius: 8px;
 }
 
 .VPButton.alt {
-  border-radius: 12px;
+  border-radius: 8px;
 }
 
-/* 特性卡片：圆角 + 悬浮上浮（Element Plus 文档同款手感） */
+/* 特性卡片：统一线宽与颜色，不使用系统 emoji。 */
 .VPFeature {
-  border-radius: 14px;
-  transition:
-    transform 0.25s ease,
-    box-shadow 0.25s ease,
-    border-color 0.25s ease;
+  border-radius: 10px;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .VPFeature:hover {
-  transform: translateY(-3px);
   border-color: var(--vp-c-brand-2);
-  box-shadow: 0 12px 28px rgba(91, 94, 244, 0.12);
+  background-color: var(--vp-c-brand-soft);
+}
+
+.VPFeature .icon {
+  width: 40px;
+  height: 40px;
+  color: var(--vp-c-brand-1);
+  background-color: transparent;
+}
+
+.VPFeature .icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.VPHero .main,
+.VPHero .text {
+  max-width: 850px;
+}
+
+.VPHome .vp-doc {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 32px 0 64px;
 }
 
 .VPFeature .title {
@@ -222,7 +237,12 @@
   white-space: nowrap;
 }
 
-/* 首列（课次 / 分组名 / 导航词）禁止断行 */
+/* 首列（分组名 / 导航词）禁止断行 */
 .vp-doc td:first-child {
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .VPHero .tagline { font-size: 17px; }
+  .VPHome .vp-doc { padding-top: 16px; }
 }

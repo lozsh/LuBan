@@ -80,6 +80,6 @@ docker compose up -d --build       # 首次约 3-5 分钟（含前端构建）
 
 ## 下一步
 
-- 系统学会：[教程](../tutorial/index.md)（8 课从零到部署）
+- 开发自己的业务：[开发指南](../tutorial/index.md)，按任务查阅
 - 逐功能查字段与边界：左侧[功能手册](./features/agent-definition.md)
 - 改造成自己的业务：[改造指南](./customization/overview.md)

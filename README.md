@@ -14,7 +14,7 @@ Java 圈二十年前就用 Spring Boot 脚手架回答过这个问题：别让�
 
 Python ≥3.11 + LangChain + LangGraph，MySQL（开发期 SQLite 免安装）。内置的智能客服是首个完整验证场景：退货 Agent、FAQ、会话分诊、退款审批流，带 mock-biz 业务服务全链路跑通，不是玩具 demo。
 
-> **第一次来？** 赶时间看效果 → [30 分钟跑通内置客服](demos/customer_service/README.md) ｜ 想系统学会（含概念讲解与练习，8 课从零到部署）→ **[新手教程](website/tutorial/index.md)**（随[文档站](website/)发布，可独立部署）
+> **第一次来？** 先判断是否适合你的业务 → [项目介绍与选型](website/manual/introduction.md) ｜ 准备试用 → [快速开始](website/manual/getting-started.md) ｜ 开发自己的业务 → [开发指南](website/tutorial/index.md) ｜ [在线文档](https://lozsh.github.io/LuBan/)
 
 ## 为什么是 LubanAgent
 
@@ -188,7 +188,7 @@ demos/ tests/ docs/ migrations/   共享领地
 
 | 你是谁 | 从这里进 |
 | --- | --- |
-| **第一次接触，想搞懂这是什么** | 本 README + [新手教程第 0 课](website/tutorial/00-primer.md) |
+| **第一次接触，想搞懂这是什么** | [项目介绍与选型](website/manual/introduction.md) + 本 README |
 | **想本地跑起来体验** | 本 README「快速开始」；工作台页面怎么用看[手册·开发者工作台](website/manual/features/workbench.md) |
 | **要开发自己的业务 Agent（长期住进仓库）** | [使用手册](website/manual/index.md)：功能手册（[定义](website/manual/features/agent-definition.md) / [模型](website/manual/features/models.md) / [Tool](website/manual/features/tools-mcp.md) / [Skill](website/manual/features/skills.md)）→ [图编排](website/manual/features/graphs.md) → [多 Agent](website/manual/features/multiagent.md)；改造场景看[改造指南](website/manual/customization/overview.md)，跟上游升级走 [UPGRADE.md](docs/UPGRADE.md) |
 | **负责部署 / 运维 / 上线** | 本 README「部署指引」（后端 / 前端 / 文档站怎么起、怎么发布）+ [UPGRADE.md](docs/UPGRADE.md)（生产部署清单）+ [手册·部署与生产清单](website/manual/deploy.md) |
@@ -199,7 +199,7 @@ demos/ tests/ docs/ migrations/   共享领地
 | 文档 | 内容 |
 | --- | --- |
 | [使用手册](website/manual/index.md) | 每个功能的"是什么 / 为什么 / 怎么用 / 边界" + API 参考 + 改造指南 |
-| [新手教程](website/tutorial/index.md) | 8+1 课线性动手课程，从零到部署（可独立部署的文档站源码在 [website/](website/)） |
+| [开发指南](website/tutorial/index.md) | 创建 Agent、接模型、写工具、配置知识、评测、流程与部署，按开发任务查阅 |
 | [架构设计](docs/design-docs/LubanAgent-architecture-design.md) | 目录结构、领地隔离、模块关系、关键技术决策 |
 | [模块规格](docs/specs/index.md) | 13 个模块的接口 / 数据 / 行为 / 边界规格，按模块导航 |
 | [CHANGELOG](CHANGELOG.md) / [UPGRADE](docs/UPGRADE.md) | 变更记录与升级指南 |

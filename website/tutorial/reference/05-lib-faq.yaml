@@ -1,7 +1,7 @@
-# 第 5 课参考产出：app/agents/my_lib_assistant.yaml（本课结束时的小图全量状态）
+# 配置知识检索参考产出：app/agents/my_lib_assistant.yaml（该示例配置完成时的小图全量状态）
 # 本文件是 Agent 定义的全量 YAML（含 knowledge 守门段），不是 FAQ 语料本身——
-# FAQ 语料正文（20 行图书馆规章 library-rules.md）见 05 课文步骤 1 的内嵌代码块。
-# 相比第 4 课多了 knowledge 段（守门三字段齐全）。
+# FAQ 语料正文（20 行图书馆规章 library-rules.md）见 知识检索指南步骤 1 的内嵌代码块。
+# 相比编写业务工具多了 knowledge 段（守门三字段齐全）。
 # 注意 score_threshold 是 FakeEmbedding 对 library-rules 语料 6 块切分的实测值，
 # 换 embedding 模型或扩文档后必须用 POST /v1/knowledge/query 重新校准。
 
