@@ -11,8 +11,8 @@
   --vp-c-brand-soft: rgba(15, 118, 110, 0.1);
 
   --vp-font-family-base:
-    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', -apple-system,
-    BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   /* 加宽内容区（默认约 688px，中文长段落太窄） */
   --vp-layout-max-width: 1400px;
@@ -33,6 +33,100 @@
 /* 正文列宽放宽：默认主题硬编码 688px，中文长段落太局促 */
 .VPDoc.has-aside .content-container {
   max-width: 880px;
+}
+
+/* 阅读宽度开关：桌面导航常驻，小屏保留原来的响应式阅读和表格滚动。 */
+.wide-screen-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 32px;
+  margin-left: 16px;
+  padding: 0 8px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+  background: var(--vp-c-bg);
+  cursor: pointer;
+}
+
+.wide-screen-toggle:hover,
+.wide-screen-toggle[aria-pressed="true"] {
+  color: var(--vp-c-brand-1);
+  border-color: var(--vp-c-brand-1);
+  background: var(--vp-c-brand-soft);
+}
+
+.wide-screen-toggle:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 3px;
+}
+
+.wide-screen-label {
+  display: none;
+}
+
+@media (min-width: 960px) {
+  .wide-screen-toggle {
+    display: inline-flex;
+  }
+
+  :root.docs-wide {
+    --vp-layout-max-width: 100vw;
+  }
+
+  .docs-wide .VPDoc .aside {
+    display: none;
+  }
+
+  .docs-wide .VPDoc .container,
+  .docs-wide .VPDoc .content,
+  .docs-wide .VPDoc .content .content-container {
+    max-width: none;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .docs-wide .VPDoc .content {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .docs-wide .vp-doc table {
+    display: table;
+    width: 100%;
+    table-layout: auto;
+  }
+
+  .docs-wide .vp-doc th,
+  .docs-wide .vp-doc td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (min-width: 1440px) {
+  .wide-screen-label {
+    display: inline;
+  }
+}
+
+/* 平板宽度容不下完整顶栏时，用已有的移动菜单，避免导航撑宽页面。 */
+@media (min-width: 768px) and (max-width: 959px) {
+  .VPNavBar .VPNavBarMenu {
+    display: none;
+  }
+
+  .VPNavBar .VPNavBarHamburger {
+    display: flex;
+  }
+
+  .Layout .VPNavScreen {
+    display: block;
+  }
 }
 
 .vp-doc {
@@ -87,7 +181,9 @@
 /* 特性卡片：统一线宽与颜色，不使用系统 emoji。 */
 .VPFeature {
   border-radius: 10px;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .VPFeature:hover {
@@ -130,15 +226,15 @@
 
 /* ---------- 代码块 ---------- */
 
-.vp-doc div[class*='language-'] {
+.vp-doc div[class*="language-"] {
   border-radius: 10px;
 }
 
 /* ---------- 代码块：macOS 窗口风格 + 长代码自动折叠 ---------- */
 
 /* macOS 红绿灯（社区经典做法：::before 画第一个圆点，box-shadow 复制出另外两个） */
-.vp-doc div[class*='language-']::before {
-  content: '';
+.vp-doc div[class*="language-"]::before {
+  content: "";
   position: absolute;
   top: 16px;
   left: 16px;
@@ -154,41 +250,41 @@
 }
 
 /* code-group 自带 tab 栏，不再叠加红绿灯 */
-.vp-doc .vp-code-group div[class*='language-']::before {
+.vp-doc .vp-code-group div[class*="language-"]::before {
   display: none;
 }
 
 /* 给红绿灯留出标题栏空间 */
-.vp-doc div[class*='language-'] pre {
+.vp-doc div[class*="language-"] pre {
   padding-top: 44px;
 }
 
 /* 语言标签与复制按钮对齐到"标题栏"一行 */
-.vp-doc div[class*='language-'] > span.lang {
+.vp-doc div[class*="language-"] > span.lang {
   top: 15px;
   right: 14px;
 }
 
-.vp-doc div[class*='language-'] > button.copy {
+.vp-doc div[class*="language-"] > button.copy {
   top: 10px;
 }
 
 /* 折叠：不能用 display:none——Shiki 每行 span 之间还有 \n 文本节点，
  * 隐藏 span 后换行符仍在，pre 高度不变。改用 max-height 裁切：
  * 44px 标题栏 + 16 行 × 1.7 行高（VitePress 默认 --vp-code-line-height） */
-.vp-doc div[class*='language-'].is-collapsed pre {
+.vp-doc div[class*="language-"].is-collapsed pre {
   max-height: calc(44px + 16 * 1.7em);
   overflow: hidden;
 }
 
 /* 折叠切口底部渐隐，暗示下方还有内容 */
-.vp-doc div[class*='language-'].is-collapsed pre code {
+.vp-doc div[class*="language-"].is-collapsed pre code {
   display: block;
   position: relative;
 }
 
-.vp-doc div[class*='language-'].is-collapsed pre code::after {
-  content: '';
+.vp-doc div[class*="language-"].is-collapsed pre code::after {
+  content: "";
   position: absolute;
   right: 0;
   bottom: 0;
@@ -199,7 +295,7 @@
 }
 
 /* 折叠/展开按钮：代码块底部通栏 */
-.vp-doc div[class*='language-'] button.code-collapse-toggle {
+.vp-doc div[class*="language-"] button.code-collapse-toggle {
   display: block;
   width: 100%;
   padding: 9px 0;
@@ -216,7 +312,7 @@
     background-color 0.2s;
 }
 
-.vp-doc div[class*='language-'] button.code-collapse-toggle:hover {
+.vp-doc div[class*="language-"] button.code-collapse-toggle:hover {
   color: var(--vp-c-brand-1);
   background: var(--vp-c-brand-soft);
 }
@@ -243,6 +339,10 @@
 }
 
 @media (max-width: 640px) {
-  .VPHero .tagline { font-size: 17px; }
-  .VPHome .vp-doc { padding-top: 16px; }
+  .VPHero .tagline {
+    font-size: 17px;
+  }
+  .VPHome .vp-doc {
+    padding-top: 16px;
+  }
 }
