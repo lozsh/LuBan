@@ -65,58 +65,104 @@ def arc_rad(bend='right', strength=0.3) -> float:
 # ── 保存规范（禁止修改 dpi 和 facecolor）──
 # plt.savefig('images/chapter-XX/xxx.png', dpi=150, bbox_inches='tight', facecolor='white')
 # plt.close()
+# ── Layout design ──
+# Canvas=(18,12), extent x=0..28,y=0..22. Same grid/style as system architecture.
+# Labels x=.65..2.9; main x=3.3..22.2; delivery x=23.2..27.35.
+# Clients y=18.6..20.3; frontend y=15.5..17.8 (gap .8).
+# API y=12.8..14.7 (gap .8); execution y=9.3..12.0 (gap .8).
+# Adapters y=6.4..8.5 (gap .8); persistence y=3.3..5.6 (gap .8).
+# External resources y=.9..2.5 (gap .8); delivery y=3.3..17.8.
+# No dependency spiderweb or invented distributed components; nested tech modules.
 from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')
 
-# All positions below are data coordinates; text is validated against its panel.
-def panel(ax, x, y, w, h, title, body, edge, fill, fontsize=13):
-    ax.add_patch(mpatches.FancyBboxPatch((x,y),w,h,boxstyle='round,pad=0.08,rounding_size=0.18',linewidth=1.4,edgecolor=edge,facecolor=fill))
-    ax.text(x+0.42,y+h-0.38,safe_text(title),ha='left',va='top',fontsize=fontsize+2,fontweight='bold',color=edge)
-    text=ax.text(x+0.42,y+h-1.04,safe_text(body),ha='left',va='top',fontsize=fontsize,color=GRAY,linespacing=1.65)
-    return text, (x,y,w,h)
+# Restrained enterprise architecture: blue/gray, rectangular nested modules.
+# Text is checked against its own cell; peer cells may not overlap.
+TEXTS = []
+CELLS = []
+def box(x, y, w, h, fill='white', edge=GRAY, lw=0.85, dashed=False):
+    ax.add_patch(mpatches.Rectangle((x,y),w,h,facecolor=fill,edgecolor=edge,
+                                  linewidth=lw,linestyle='--' if dashed else '-'))
 
-def validate(fig, ax, panels):
+def label(x,y,w,h,text,size=12,bold=False,color=GRAY):
+    t=ax.text(x+w/2,y+h/2,safe_text(text),ha='center',va='center',
+              fontsize=size,fontweight='bold' if bold else 'normal',
+              color=color,linespacing=1.45)
+    TEXTS.append((t,(x,y,w,h)))
+
+def cell(x,y,w,h,text,size=12,fill='white',accent=False):
+    box(x,y,w,h,fill,BLUE if accent else GRAY,0.85)
+    label(x,y,w,h,text,size,accent,BLUE if accent else GRAY)
+    CELLS.append((x,y,w,h,text))
+
+def layer(y,h,title,w=18.9):
+    box(.65,y,2.25,h,LIGHT_BLUE,BLUE)
+    label(.65,y,2.25,h,title,13,True,BLUE)
+    box(3.3,y,w,h,LIGHT_GRAY,GRAY)
+
+def group(x,y,w,h,title,items):
+    box(x,y,w,h,'white',BLUE)
+    label(x,y+h-.62,w,.58,title,13,True,BLUE)
+    count=len(items);gap=.16;inner_y=y+.20;inner_h=h-.96
+    cell_h=(inner_h-gap*(count-1))/count
+    for i,text in enumerate(items):
+        cell(x+.18,inner_y+(count-1-i)*(cell_h+gap),w-.36,cell_h,text,12,LIGHT_BLUE)
+
+def chips(x,y,w,h,items,size=12):
+    gap=.25;cw=(w-gap*(len(items)-1))/len(items)
+    for i,text in enumerate(items):cell(x+i*(cw+gap),y,cw,h,text,size)
+
+def validate():
     fig.canvas.draw()
-    for text,(x,y,w,h) in panels:
-        bounds=text.get_window_extent().transformed(ax.transData.inverted())
-        assert bounds.x0 >= x and bounds.x1 <= x+w, (text.get_text(),bounds)
-        assert bounds.y0 >= y and bounds.y1 <= y+h, (text.get_text(),bounds)
+    failures = []
+    for text,(x,y,w,h) in TEXTS:
+        bb=text.get_window_extent().transformed(ax.transData.inverted())
+        if not (x+.03<=bb.x0 and bb.x1<=x+w-.03): failures.append((text.get_text(),'horizontal',str(bb),(x,y,w,h)))
+        if not (y+.025<=bb.y0 and bb.y1<=y+h-.025): failures.append((text.get_text(),'vertical',str(bb),(x,y,w,h)))
+    assert not failures, failures
+    for i,a in enumerate(CELLS):
+        for b in CELLS[i+1:]:
+            overlap_x=min(a[0]+a[2],b[0]+b[2])-max(a[0],b[0])
+            overlap_y=min(a[1]+a[3],b[1]+b[3])-max(a[1],b[1])
+            assert overlap_x<=.01 or overlap_y<=.01,(a[4],b[4],'overlap')
 
-def arrow(ax, x1,y1,x2,y2, dashed=False):
-    ax.annotate('',xy=(x2,y2),xytext=(x1,y1),arrowprops=dict(arrowstyle='->',color=GRAY,lw=1.7,linestyle='--' if dashed else '-'))
+fig,ax=plt.subplots(figsize=(18,12))
+ax.set_xlim(0,28);ax.set_ylim(0,22);ax.axis('off')
 
-# Layout design (calculated before drawing):
-# figure=(18,12), xlim=(0,24), ylim=(0,18).
-# app x9..15,y8.0..10.6; libs x7..17,y13.4..15.8 -> vertical gap2.8.
-# model x.6..5.6,y8.0..10.6; obs x18.4..23.4 same y -> horizontal gap3.4.
-# database x9..15,y3.8..6.4 -> vertical gap1.6; business and MCP same bottom row.
-# optional elbows in x7.2 /16.8 gutters, never across panel interiors.
-fig,ax=plt.subplots(figsize=(18,12));ax.set_xlim(0,24);ax.set_ylim(0,18);ax.axis('off')
-ax.text(.6,17.25,safe_text('系统依赖：哪些在程序里，哪些要单独连接'),fontsize=24,fontweight='bold',color=BLUE)
-ax.text(.6,16.55,safe_text('箭头：使用方 → 被依赖方     |     实线：运行关系     |     虚线：按场景启用'),fontsize=13,color=GRAY)
-checks=[]
-checks.append(panel(ax,7,13.4,10,2.4,'Python 程序里的库，不是独立服务','FastAPI：接口     ·     LangChain：模型 / 工具接入\nLangGraph：任务执行     ·     SQLAlchemy：数据库访问',BLUE,LIGHT_BLUE,13))
-checks.append(panel(ax,9,8,6,2.6,'LubanAgent 应用','Python 后端 + 构建后的工作台\n你部署和定制的主体',BLUE,LIGHT_BLUE,14))
-checks.append(panel(ax,.6,8,5,2.6,'真实业务：模型服务','DeepSeek / Qwen / GLM 等\n或 Ollama / vLLM 本地服务',PURPLE,LIGHT_PURPLE,12))
-checks.append(panel(ax,18.4,8,5,2.6,'可选：观测平台','Langfuse 自部署 / LangSmith\n关闭后仍保留内部运行记录',ORANGE,LIGHT_ORANGE,12))
-checks.append(panel(ax,9,3.8,6,2.6,'项目数据库：必须','SQLite 文件 / MySQL 服务\n配置、版本、知识、运行记录、检查点',GREEN,LIGHT_GREEN,11.5))
-checks.append(panel(ax,.6,3.8,5,2.6,'按业务：你自己的系统','订单 / 工单 / 内部服务\nPython 业务工具去调用',GREEN,LIGHT_GREEN,12))
-checks.append(panel(ax,18.4,3.8,5,2.6,'可选：外部工具与数据','MCP Server / 向量模型等\n根据业务和检索要求接入',GREEN,LIGHT_GREEN,12))
-arrow(ax,12,10.6,12,13.4)
-arrow(ax,9,9.3,5.6,9.3,True)
-arrow(ax,15,9.3,18.4,9.3,True)
-arrow(ax,12,8,12,6.4)
-# Optional business integrations, elbow lines avoid crossing unrelated services.
-for start,gutter,end in [(9,7.2,5.6),(15,16.8,18.4)]:
-    ax.plot([start,gutter,gutter],[8.35,8.35,5.1],color=GRAY,lw=1.5,linestyle='--')
-    arrow(ax,gutter,5.1,end,5.1,True)
-ax.text(.6,2.55,safe_text('最小起步'),fontsize=16,fontweight='bold',color=BLUE)
-ax.text(3.3,2.55,safe_text('Python + SQLite + FakeLLM 固定回复；不接真实模型也能验证链路'),fontsize=14,color=GRAY)
-ax.text(.6,1.65,safe_text('真实业务'),fontsize=16,fontweight='bold',color=GREEN)
-ax.text(3.3,1.65,safe_text('再连接真实模型、业务接口；观测与外部工具按需接入'),fontsize=14,color=GRAY)
-ax.text(.6,.65,safe_text('Node.js 只用于前端开发 / 构建。文档站独立发布；Docker 五服务组合是演示，不是最低运行要求。'),fontsize=12,color=GRAY)
-validate(fig,ax,checks)
+label(.65,20.70,26.7,1.02,'LubanAgent 技术架构图',24,True,BLUE)
+label(.65,20.26,26.7,.58,'前端、Python 后端、数据与工程交付',13)
+layer(18.6,1.7,'访问端',24.05)
+chips(3.55,18.94,23.55,1.0,['浏览器 · 工作台','业务系统 · HTTP 客户端','命令行 · Typer CLI'],13)
+
+layer(15.5,2.3,'前端工作台')
+chips(3.55,16.26,18.4,1.08,['React 18\nTypeScript','Tailwind CSS\nRadix UI','React Router\nTanStack Query','OpenAPI 类型\nopenapi-fetch'],12)
+label(3.55,15.65,18.4,.53,'工作台静态资源由 Python 服务提供；Node.js 用于开发与构建',11.5)
+
+layer(12.8,1.9,'接口服务')
+chips(3.55,13.26,18.4,1.00,['FastAPI\nREST · SSE · OpenAPI','Pydantic\n参数校验 · 配置','Uvicorn\nASGI 服务'],12)
+
+layer(9.3,2.7,'执行引擎')
+group(3.55,9.54,5.93,2.22,'LangGraph',['单 Agent · 代码流程','多 Agent 委派 · 图执行'])
+group(9.73,9.54,5.93,2.22,'LangChain',['消息与模型接口','工具调用适配'])
+group(15.91,9.54,6.04,2.22,'Luban Runtime',['上下文 · 检查点','取消 · 超时 · 预算'])
+
+layer(6.4,2.1,'能力适配')
+chips(3.55,6.86,18.4,1.18,['模型工厂\nlangchain-openai','工具与协议\nPython Tool · MCP SDK','Skill 执行\n说明加载 · 脚本沙箱','知识与记忆\n检索 · 会话上下文'],11.5)
+
+layer(3.3,2.3,'数据持久化')
+chips(3.55,4.13,18.4,1.03,['SQLAlchemy 2\n异步 ORM · 仓储','Alembic\n数据库 Schema 迁移','SQLite / MySQL\n定义 · 运行 · 检查点'],12)
+label(3.55,3.48,18.4,.50,'内部数据库是事实源；上传的知识文件与形象文件存于本地目录',11.5)
+
+box(23.2,3.3,4.15,14.5,LIGHT_GRAY,GRAY)
+label(23.2,16.84,4.15,.7,'工程与交付',14,True,BLUE)
+for i,item in enumerate(['Vite · 前端构建','uv · 依赖锁定','Docker / Compose','GitHub Actions','pytest / Ruff','import-linter','业务 / 框架隔离','升级与迁移指引']):
+    cell(23.47,15.15-i*1.48,3.61,1.03,item,11.5,LIGHT_BLUE)
+
+layer(.9,1.6,'外部资源',24.05)
+chips(3.55,1.20,23.55,1.0,['真实业务 · 模型服务','按需 · 业务接口 / MCP 服务','可选观测 · Langfuse / LangSmith'],12)
+label(.65,.19,26.7,.49,'后端使用 Python ≥3.11；框内是技术模块，不是独立微服务。不要求 Redis、消息队列或 Kubernetes。',11.5)
+validate()
 path=Path(__file__).with_suffix('.png')
 plt.savefig(path,dpi=150,bbox_inches='tight',facecolor='white');plt.close()
-print(str(path.resolve()))
+print(str(path.resolve())+' | text_bounds=PASS | peer_overlap=PASS')

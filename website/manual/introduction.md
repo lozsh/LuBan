@@ -1,10 +1,10 @@
 ---
-description: 用一张功能架构图和一张系统依赖图，了解 LubanAgent 是什么、包含哪些功能、你需要开发什么，以及是否适合自己的项目。
+description: 通过系统架构图和技术架构图，了解 LubanAgent 是什么、有哪些模块、采用什么技术，以及是否适合自己的项目。
 ---
 
 <script setup>
 import architectureImage from './images/luban-architecture.png'
-import dependenciesImage from './images/luban-dependencies.png'
+import technicalImage from './images/luban-dependencies.png'
 </script>
 
 # 项目介绍
@@ -56,13 +56,13 @@ LubanAgent 提供运行这个助手的工程，不提供你公司的订单系统
 
 MCP 是连接外部工具的标准协议；Skill 是装有任务说明、脚本和资料的能力包。它们都不是必须使用的前置条件。
 
-### 功能架构图：这些部分怎样配合
+### 系统架构图
 
-<a :href="architectureImage" target="_blank" rel="noopener"><img :src="architectureImage" alt="LubanAgent 功能架构：接入、配置、执行、共用能力与治理，各层标出对应功能" /></a>
+<a :href="architectureImage" target="_blank" rel="noopener"><img :src="architectureImage" alt="LubanAgent 系统架构图：接入入口、配置管理、任务执行、共用能力、数据存储与工程基座，运行治理共用于三种执行方式" /></a>
 
-*可点击图片查看大图，也可开启顶部宽屏模式。图 1：蓝色是接入与配置，紫色是执行方式，绿色是共用能力，橙色是贯穿运行的治理。图表示模块关系，不是每次请求都要经过所有功能。*
+*图 1：系统按职责分层，层内标出具体模块；右侧运行治理共用于单 Agent、流程和多 Agent。点击图片查看大图，或开启顶部宽屏模式。*
 
-**从上往下看**：工作台和业务系统通过接口使用服务；配置中心决定助手使用哪些模型、工具和资料；执行层负责处理任务；底部能力供不同执行方式共用。监控、评测和运行限制服务于这套工程，不是另一个独立产品。
+**这张图看系统组成**：上层是接入和配置，中间是三种任务执行方式与共用能力，底部是数据存储和工程基座。右侧治理不是额外的一步，而是对运行过程的记录与约束。层级表示职责，不是每次请求必须走完的顺序。
 
 **三种执行方式不需要选三个系统**：普通助手、代码流程和多个助手协作都在这个项目里，使用同一套运行记录与治理。流程通过代码或工具接入，不提供拖拽式流程编辑器。
 
@@ -93,11 +93,13 @@ MCP 是连接外部工具的标准协议；Skill 是装有任务说明、脚本�
 
 若依是交付形态的类比，不是 Agent 领域的功能替代品。其他项目也有监控、评测或审批等能力，选型应验证你实际要用的版本；LubanAgent 的理由是**整套工程符合你的开发方式**，不是“别人什么都没有”。
 
-## 系统依赖图：要装什么，要连接什么
+## 技术架构图
 
-<a :href="dependenciesImage" target="_blank" rel="noopener"><img :src="dependenciesImage" alt="LubanAgent 系统依赖：程序内的库、必须的数据库，以及模型服务、可选观测和业务连接" /></a>
+<a :href="technicalImage" target="_blank" rel="noopener"><img :src="technicalImage" alt="LubanAgent 技术架构图：React 工作台、FastAPI 接口、LangGraph 与 LangChain 执行引擎、能力适配、SQLAlchemy 数据持久化及工程交付" /></a>
 
-*可点击图片查看大图。图 2：箭头从使用方指向被依赖方；实线是实际运行需要的关系，虚线是按场景启用的外部连接。程序内的库不需要单独部署。*
+*图 2：按前端、接口、执行、适配和持久化展开技术栈，右侧列出构建与交付工具，底部标出外部资源。点击图片查看大图。*
+
+**这张图看实现方式**：React 工作台通过 HTTP / SSE 使用 FastAPI 接口；Python 后端用 LangGraph 执行任务、LangChain 接入模型与工具，再由 SQLAlchemy 访问数据库。这些是同一工程内的技术模块，不是需要分别部署的微服务。
 
 - **最小本地环境**：Python 程序 + SQLite 文件库。FakeLLM 返回固定内容，可以不接真实模型验证安装和调用链路；演示向量也不用于判断实际检索质量。
 - **真实业务环境**：再接一个真实模型服务，并实现自己的业务工具。数据库可用 MySQL；知识检索效果需要用实际语料和向量模型验证，不要求额外部署专用向量数据库才能起步。
