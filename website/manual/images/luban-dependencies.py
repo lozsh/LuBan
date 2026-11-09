@@ -77,7 +77,60 @@ from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')
 
-# Restrained enterprise architecture: blue/gray, rectangular nested modules.
+# Prefer PingFang SC rather than the old Arial Unicode. macOS stores SC as a
+# non-first face in its TTC; extract only regular/semibold to an external cache.
+# No font is bundled in this repository or redistributed with the PNG.
+def _diagram_fonts():
+    import os
+    import tempfile
+    candidates = [Path('/System/Library/Fonts/PingFang.ttc')]
+    assets = Path('/System/Library/AssetsV2/com_apple_MobileAsset_Font8')
+    if assets.is_dir():
+        candidates.extend(sorted(assets.glob('*/AssetData/PingFang.ttc')))
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            from fontTools.ttLib import TTCollection
+            import hashlib
+            cache = Path(tempfile.gettempdir()) / ('luban-diagram-fonts-' + str(os.getuid()))
+            cache.mkdir(exist_ok=True)
+            fonts = {}
+            collection = TTCollection(str(candidate), lazy=True)
+            for font in collection.fonts:
+                family = font['name'].getDebugName(1)
+                style = font['name'].getDebugName(2)
+                if family == 'PingFang SC' and style in ('Regular', 'Semibold'):
+                    token = hashlib.sha256((str(candidate) + str(candidate.stat().st_mtime_ns)).encode()).hexdigest()[:12]
+                    output = cache / ('PingFangSC-' + style + '-' + token + '.ttf')
+                    if not output.exists():
+                        font.save(output)
+                    fonts[style] = fm.FontProperties(fname=str(output))
+            collection.close()
+            if len(fonts) == 2:
+                return fonts['Regular'], fonts['Semibold']
+        except (ImportError, OSError, KeyError):
+            continue
+    available = {f.name for f in fm.fontManager.ttflist}
+    for family in ['PingFang SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'Microsoft YaHei', 'STHeiti', 'SimHei']:
+        if family in available:
+            return fm.FontProperties(family=family), fm.FontProperties(family=family, weight='bold')
+    # Last-resort fallback for systems without an installed Chinese sans font.
+    return fm.FontProperties(family='Arial Unicode MS'), fm.FontProperties(family='Arial Unicode MS', weight='bold')
+
+REGULAR_FONT, HEADING_FONT = _diagram_fonts()
+LAYER_PALETTE = {
+    '接入入口': (BLUE, LIGHT_BLUE), '访问端': (BLUE, LIGHT_BLUE),
+    '配置管理': (PURPLE, LIGHT_PURPLE), '前端工作台': (PURPLE, LIGHT_PURPLE),
+    '任务执行': (ORANGE, LIGHT_ORANGE), '接口服务': (GREEN, LIGHT_GREEN),
+    '共用能力': (GREEN, LIGHT_GREEN), '执行引擎': (ORANGE, LIGHT_ORANGE),
+    '数据存储': (BLUE, LIGHT_BLUE), '能力适配': (PURPLE, LIGHT_PURPLE),
+    '工程基座': (GRAY, LIGHT_GRAY), '数据持久化': (BLUE, LIGHT_BLUE),
+    '外部资源': (GREEN, LIGHT_GREEN),
+}
+ACTIVE_EDGE, ACTIVE_FILL = BLUE, LIGHT_BLUE
+
+# Restrained layer-specific colors, white modules and PingFang SC typography.
 # Text is checked against its own cell; peer cells may not overlap.
 TEXTS = []
 CELLS = []
@@ -86,28 +139,36 @@ def box(x, y, w, h, fill='white', edge=GRAY, lw=0.85, dashed=False):
                                   linewidth=lw,linestyle='--' if dashed else '-'))
 
 def label(x,y,w,h,text,size=12,bold=False,color=GRAY):
+    font = (HEADING_FONT if bold else REGULAR_FONT).copy()
+    font.set_size(size)
     t=ax.text(x+w/2,y+h/2,safe_text(text),ha='center',va='center',
               fontsize=size,fontweight='bold' if bold else 'normal',
-              color=color,linespacing=1.45)
+              color=color,linespacing=1.45,
+              fontproperties=font)
     TEXTS.append((t,(x,y,w,h)))
 
 def cell(x,y,w,h,text,size=12,fill='white',accent=False):
-    box(x,y,w,h,fill,BLUE if accent else GRAY,0.85)
-    label(x,y,w,h,text,size,accent,BLUE if accent else GRAY)
+    # Modules stay white; the enclosing layer, headers and borders carry color.
+    if fill == LIGHT_BLUE:
+        fill = ACTIVE_FILL
+    box(x,y,w,h,fill,ACTIVE_EDGE,0.75)
+    label(x,y,w,h,text,size,accent,ACTIVE_EDGE if accent else '#374151')
     CELLS.append((x,y,w,h,text))
 
 def layer(y,h,title,w=18.9):
-    box(.65,y,2.25,h,LIGHT_BLUE,BLUE)
-    label(.65,y,2.25,h,title,13,True,BLUE)
-    box(3.3,y,w,h,LIGHT_GRAY,GRAY)
+    global ACTIVE_EDGE, ACTIVE_FILL
+    ACTIVE_EDGE, ACTIVE_FILL = LAYER_PALETTE[title]
+    box(.65,y,2.25,h,ACTIVE_FILL,ACTIVE_EDGE)
+    label(.65,y,2.25,h,title,13,True,ACTIVE_EDGE)
+    box(3.3,y,w,h,ACTIVE_FILL,ACTIVE_EDGE)
 
 def group(x,y,w,h,title,items):
-    box(x,y,w,h,'white',BLUE)
-    label(x,y+h-.62,w,.58,title,13,True,BLUE)
+    box(x,y,w,h,'white',ACTIVE_EDGE)
+    label(x,y+h-.62,w,.58,title,13,True,ACTIVE_EDGE)
     count=len(items);gap=.16;inner_y=y+.20;inner_h=h-.96
     cell_h=(inner_h-gap*(count-1))/count
     for i,text in enumerate(items):
-        cell(x+.18,inner_y+(count-1-i)*(cell_h+gap),w-.36,cell_h,text,12,LIGHT_BLUE)
+        cell(x+.18,inner_y+(count-1-i)*(cell_h+gap),w-.36,cell_h,text,12)
 
 def chips(x,y,w,h,items,size=12):
     gap=.25;cw=(w-gap*(len(items)-1))/len(items)
@@ -154,8 +215,9 @@ layer(3.3,2.3,'数据持久化')
 chips(3.55,4.13,18.4,1.03,['SQLAlchemy 2\n异步 ORM · 仓储','Alembic\n数据库 Schema 迁移','SQLite / MySQL\n定义 · 运行 · 检查点'],12)
 label(3.55,3.48,18.4,.50,'内部数据库是事实源；上传的知识文件与形象文件存于本地目录',11.5)
 
+ACTIVE_EDGE, ACTIVE_FILL = GRAY, LIGHT_GRAY
 box(23.2,3.3,4.15,14.5,LIGHT_GRAY,GRAY)
-label(23.2,16.84,4.15,.7,'工程与交付',14,True,BLUE)
+label(23.2,16.84,4.15,.7,'工程与交付',14,True,GRAY)
 for i,item in enumerate(['Vite · 前端构建','uv · 依赖锁定','Docker / Compose','GitHub Actions','pytest / Ruff','import-linter','业务 / 框架隔离','升级与迁移指引']):
     cell(23.47,15.15-i*1.48,3.61,1.03,item,11.5,LIGHT_BLUE)
 
@@ -165,4 +227,4 @@ label(.65,.19,26.7,.49,'后端使用 Python ≥3.11；框内是技术模块，�
 validate()
 path=Path(__file__).with_suffix('.png')
 plt.savefig(path,dpi=150,bbox_inches='tight',facecolor='white');plt.close()
-print(str(path.resolve())+' | text_bounds=PASS | peer_overlap=PASS')
+print(str(path.resolve())+' | text_bounds=PASS | peer_overlap=PASS | font='+REGULAR_FONT.get_name()+' | heading='+HEADING_FONT.get_name())
