@@ -170,10 +170,11 @@ export default withMermaid(
       },
       nav: [
         { text: '首页', link: '/', activeMatch: '^/$' },
-        { text: '项目介绍', link: '/manual/introduction', activeMatch: '/manual/introduction' },
-        { text: '快速开始', link: '/manual/getting-started', activeMatch: '/manual/getting-started' },
-        { text: '开发指南', link: '/tutorial/', activeMatch: '/tutorial/' },
-        { text: '使用手册', link: '/manual/', activeMatch: '/manual/' },
+        { text: '项目介绍', link: '/manual/introduction', activeMatch: '^/manual/introduction$' },
+        { text: '快速开始', link: '/manual/getting-started', activeMatch: '^/manual/getting-started$' },
+        { text: '开发指南', link: '/tutorial/', activeMatch: '^/tutorial/' },
+        // 两个独立入口也位于 manual/，不能让它们同时命中“使用手册”。
+        { text: '使用手册', link: '/manual/', activeMatch: '^/manual/(?!(?:introduction|getting-started)$)' },
         {
           text: '更多',
           items: [
