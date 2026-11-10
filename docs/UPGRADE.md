@@ -15,8 +15,10 @@
 **怎么用**：一次性配置 upstream remote，之后每次升级走"拉取 → 合并 → 迁移 → 验证"四步。
 
 ```bash
-# 一次性：登记上游仓库（替换为真实上游地址）
-git remote add upstream https://github.com/<org>/Luban.git
+# 一次性：登记上游仓库
+git remote add upstream https://github.com/lubanagent-dev/LuBan.git
+# 若已有 upstream remote，改指迁移后的组织仓库
+git remote set-url upstream https://github.com/lubanagent-dev/LuBan.git
 
 # 每次升级
 git fetch upstream                              # 拉取上游最新

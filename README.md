@@ -14,7 +14,7 @@ Java 圈二十年前就用 Spring Boot 脚手架回答过这个问题：别让�
 
 Python ≥3.11 + LangChain + LangGraph，MySQL（开发期 SQLite 免安装）。内置的智能客服是首个完整验证场景：退货 Agent、FAQ、会话分诊、退款审批流，带 mock-biz 业务服务全链路跑通，不是玩具 demo。
 
-> **第一次来？** 先判断是否适合你的业务 → [项目介绍与选型](website/manual/introduction.md) ｜ 准备试用 → [快速开始](website/manual/getting-started.md) ｜ 开发自己的业务 → [开发指南](website/tutorial/index.md) ｜ [在线文档](https://lozsh.github.io/LuBan/)
+> **第一次来？** 先判断是否适合你的业务 → [项目介绍与选型](website/manual/introduction.md) ｜ 准备试用 → [快速开始](website/manual/getting-started.md) ｜ 开发自己的业务 → [开发指南](website/tutorial/index.md) ｜ [在线文档](https://lubanagent-dev.github.io/LuBan/)
 
 ## 为什么是 LubanAgent
 

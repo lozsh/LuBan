@@ -14,7 +14,7 @@ hero:
       link: /manual/getting-started
     - theme: alt
       text: 查看源码
-      link: https://github.com/lozsh/LuBan
+      link: https://github.com/lubanagent-dev/LuBan
 
 features:
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 8-4 4 4 4m8-8 4 4-4 4m-3-11-2 22"/></svg>'

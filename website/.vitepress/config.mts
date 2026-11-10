@@ -154,10 +154,10 @@ export default withMermaid(
           },
         },
       },
-      socialLinks: [{ icon: 'github', link: 'https://github.com/lozsh/LuBan' }],
+      socialLinks: [{ icon: 'github', link: 'https://github.com/lubanagent-dev/LuBan' }],
       outline: { level: [2, 3], label: '本页目录' },
       editLink: {
-        pattern: 'https://github.com/lozsh/LuBan/edit/master/website/:path',
+        pattern: 'https://github.com/lubanagent-dev/LuBan/edit/master/website/:path',
         text: '在 GitHub 上编辑此页',
       },
       docFooter: { prev: '上一篇', next: '下一篇' },
@@ -178,9 +178,9 @@ export default withMermaid(
         {
           text: '更多',
           items: [
-            { text: 'GitHub 仓库', link: 'https://github.com/lozsh/LuBan' },
-            { text: '问题反馈', link: 'https://github.com/lozsh/LuBan/issues' },
-            { text: '发布日志', link: 'https://github.com/lozsh/LuBan/releases' },
+            { text: 'GitHub 仓库', link: 'https://github.com/lubanagent-dev/LuBan' },
+            { text: '问题反馈', link: 'https://github.com/lubanagent-dev/LuBan/issues' },
+            { text: '发布日志', link: 'https://github.com/lubanagent-dev/LuBan/releases' },
           ],
         },
       ],

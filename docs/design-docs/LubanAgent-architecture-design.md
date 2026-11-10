@@ -498,7 +498,7 @@ app/config/settings.local.py
 **升级工作流（用户侧）**：
 
 ```bash
-git remote add upstream https://github.com/lubanagent/lubanagent.git
+git remote add upstream https://github.com/lubanagent-dev/LuBan.git
 git fetch upstream
 git merge upstream/master
 # 冲突预期只在 scaffold-seed 文件；按 UPGRADE.md 指令处理

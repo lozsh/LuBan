@@ -416,7 +416,7 @@ flowchart LR
 全部单元交付后，以下命令链应零人工跑通（开发期）：
 
 ```bash
-git clone <repo> && cd lubanagent
+git clone https://github.com/lubanagent-dev/LuBan.git lubanagent && cd lubanagent
 cp app/config/.env.example .env          # H1/H4 占位即可（FakeLLM 兜底）
 docker compose up -d                                 # app + mysql + langfuse + langfuse-db + mock-biz
 alembic upgrade head                                 # 建表

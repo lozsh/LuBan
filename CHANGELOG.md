@@ -28,6 +28,7 @@
 
 ### CI 与交付
 
+- `[shared]` **迁移链接同步**：仓库与在线文档链接迁移到 `lubanagent-dev` 组织；升级/克隆示例改用 `https://github.com/lubanagent-dev/LuBan.git`，Pages 指向 `https://lubanagent-dev.github.io/LuBan/`，并补充已有 upstream remote 的 `git remote set-url` 指引。
 - `[shared]` 新增冷启动端到端冒烟（D1-9 ⑥ 收官）：`scripts/cold_start_smoke.py` 零密钥走通「migrate → init --fill-missing → uvicorn 起服务 → /health → 工作台 / 与 /chat（ui/dist 存在时）→ SSE 对话 customer-service-bot（断言 run.started / run.completed、无 run.failed）」，临时 SQLite 库 + 随机端口 + 240s 总死线；CI 新增 `cold-start` job 调用（`.github/workflows/ci.yml`），兑现 PRD §8"冷启动体感由 CI 端到端回归守卫"承诺。
 - `[shared]` **迁移降级 MySQL 兼容修复**：`0001_initial_schema` downgrade 不再先 `drop_index` 再 `drop_table`（MySQL 1553：FK 仍在时显式删除其支撑索引会失败），改为只删表、索引随表删除；`0011` 的 `auth_sessions` 降级已按同规则先删表。SQLite upgrade→downgrade→upgrade 三向测试通过；MySQL 真实降级以远端 CI 结果为准，本条不声称已在 MySQL 实跑验证。
 - `[shared]` **测试稳定性收口**：SSE 事件序列测试不再断言模型 token 流与工具子流的全局墙钟先后（LangGraph 可先调度工具），改为因果边界——`run.started` 早于首个事件、token 在 `run.completed` 终态前、`tool.started` < `tool.finished` < 终态；CPU 限额测试接受 Linux `soft=hard` 下内核直接 `SIGKILL`（`exit in {SIGXCPU, SIGKILL}`）并断言 10 秒内终止（不等 20 秒外层超时），不放宽任何代码层限额。

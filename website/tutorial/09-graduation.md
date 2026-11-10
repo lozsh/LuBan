@@ -31,7 +31,7 @@ Agent 在本机能够运行后，还要检查业务接口、权限、异常路�
 
 - 查完整字段与限制：[使用手册](../manual/index.md)。
 - 配置真实模型、观测与数据库：[换模型与后端](../manual/customization/swap-backends.md)。
-- 准备生产环境：[部署清单](../manual/deploy.md)与 [SECURITY.md](https://github.com/lozsh/LuBan/blob/master/SECURITY.md)。
+- 准备生产环境：[部署清单](../manual/deploy.md)与 [SECURITY.md](https://github.com/lubanagent-dev/LuBan/blob/master/SECURITY.md)。
 - 合并后续框架更新：[升级指引](../manual/customization/upgrade.md)。
 
 反馈问题时提供版本、复现步骤、预期与实际结果，必要时附脱敏 Trace。请勿上传 API Key、用户隐私或内部业务数据。

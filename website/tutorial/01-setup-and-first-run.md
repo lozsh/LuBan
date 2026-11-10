@@ -44,7 +44,7 @@
 ### 步骤 1：克隆并安装
 
 ```bash
-git clone <仓库地址> luban-tutorial   # 名字随意，下面统一叫它"仓库根目录"
+git clone https://github.com/lubanagent-dev/LuBan.git luban-tutorial   # 名字随意，下面统一叫它"仓库根目录"
 cd luban-tutorial
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e ".[dev]"

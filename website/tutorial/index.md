@@ -36,4 +36,4 @@
 
 本指南只展示当前任务涉及的字段。完整配置、API 和功能边界见[使用手册](../manual/index.md)；源码分层与扩展位置见[项目架构](../manual/architecture.md)。
 
-文档与仓库主线同步维护，使用发布版本时请同时查看对应版本的配置和[变更记录](https://github.com/lozsh/LuBan/blob/master/CHANGELOG.md)。反馈问题时附上版本、操作命令、脱敏后的错误输出以及预期结果。
+文档与仓库主线同步维护，使用发布版本时请同时查看对应版本的配置和[变更记录](https://github.com/lubanagent-dev/LuBan/blob/master/CHANGELOG.md)。反馈问题时附上版本、操作命令、脱敏后的错误输出以及预期结果。

@@ -334,6 +334,7 @@ CLI 侧输出：逐 case `[PASS]`/`[FAIL]` + 失败原因；`pass_rate` 汇总�
 
 ## 边界规则
 
+- **文档站部署边界**：文档站由 `.github/workflows/docs.yml` 按 workflow 触发构建，项目页通过 `DOCS_BASE=/LuBan/` 设置子路径；GitHub Pages 地址是 `https://lubanagent-dev.github.io/LuBan/`，GitHub 仓库入口是 `https://github.com/lubanagent-dev/LuBan`。该发布链路独立于平台 API 运行时，不改变 `/v1/*` 契约。
 - **鉴权强制点**：框架 `api_router` 聚合依赖覆盖框架 `/v1/*`；security 路由的 me/logout 与 managed router 显式挂 `get_principal`，用户 router 必须显式保护，工厂为 `extra_routers` 再注入 `get_principal` 并在静态挂载前注册。`/health` 与 `POST /v1/auth/login` 不要求既有凭据；`/v1` 未知路由不会被 SPA 页面回退接管。
 - **鉴权优先级与权限裁决**：`auth_enabled=True` 时 Master API Key 优先映射为 bootstrap admin，自定义 `AuthProvider` 次之，否则数据库 bearer 会话；无 bearer 时退化到内置 API Key。认证后按 `required_permission(method,path)` 裁决：auth 路径仅认证、security 要求 `security:manage`、logs/diagnostics 要求 `diagnostics:read`，runs/traces/approvals、评测和其余配置读写分别映射 run/eval/config 权限；未知写路径默认 `config:write`。`auth_enabled=False` 使用 anonymous 全权限主体，仅限开发模式且仍限流。
 - **配置缺失 fail fast**：`create_app()` 在扩展扫描后检查 `AUTH_ENABLED=true` 且无 `API_KEY`、无自定义 provider、且 `AUTH_DATABASE_ENABLED=false` 的组合，直接 raise `CONFIG_ERROR` 拒绝启动；可用出路是设置 `API_KEY`、开启数据库账号模式、注册自定义 AuthProvider 或显式关闭鉴权（仅开发期）。`AUTH_DATABASE_ENABLED=true` 且设置 `LUBAN_ADMIN_PASSWORD` 时 lifespan 只在 admin 不存在时创建 bootstrap admin；无活跃 admin 且未设置密码时，若也没有 API Key 和自定义 provider 则 lifespan 直接 `CONFIG_ERROR`，否则 warning 提示先经 API Key 创建账号；已有活跃 admin 重启不要求引导密码。

@@ -50,7 +50,7 @@ On top of this positioning, the base ships with:
 
 **No black boxes**: full source code; deterministic rules (permissions / amounts / approvals) are enforced by code, not by prompt declarations. **No forced SaaS**: observability defaults to self-hosted Langfuse (data sovereignty), can switch to LangSmith or be disabled entirely; the internal DB is always the source of truth.
 
-> **First time here?** Read the [project introduction and comparisons](../website/manual/introduction.md) (Chinese), then follow the [quick start](../website/manual/getting-started.md) or choose a task in the [development guide](../website/tutorial/index.md). See the [online documentation](https://lozsh.github.io/LuBan/).
+> **First time here?** Read the [project introduction and comparisons](../website/manual/introduction.md) (Chinese), then follow the [quick start](../website/manual/getting-started.md) or choose a task in the [development guide](../website/tutorial/index.md). See the [online documentation](https://lubanagent-dev.github.io/LuBan/).
 
 ## See It in 60 Seconds
 

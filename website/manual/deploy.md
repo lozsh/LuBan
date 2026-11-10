@@ -22,7 +22,7 @@
 6. **环境分层**：dev/staging/prod 用 `.env` 分层覆盖；密钥走你的密钥管理，不进镜像不进仓库。
 7. **可信网关**：自定义 AuthProvider 的服务端 scopes 是唯一可信权限；不要通过 header 或请求体声明角色。`user_id` 仍是业务侧排查标签，不是平台账号外键；平台 RBAC 不做租户、部门或行级授权。
 
-完整的逐项操作与升级须知见 [docs/UPGRADE.md](https://github.com/lozsh/LuBan/blob/master/docs/UPGRADE.md)。
+完整的逐项操作与升级须知见 [docs/UPGRADE.md](https://github.com/lubanagent-dev/LuBan/blob/master/docs/UPGRADE.md)。
 
 ## 升级运维
 

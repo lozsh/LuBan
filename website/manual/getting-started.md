@@ -10,7 +10,7 @@
 ## 1. 安装并初始化
 
 ```bash
-git clone <repo-url> LubanAgent && cd LubanAgent
+git clone https://github.com/lubanagent-dev/LuBan.git LubanAgent && cd LubanAgent
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e ".[dev]"
 cp app/config/.env.example .env   # 零配置也能起：SQLite + FakeLLM 兜底
