@@ -14,13 +14,22 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 ## 定位
 
-本模块是 LubanAgent 观测体系中"内部 DB 双写主笔 + 成本治理 + 评测体系"三个子域的集合，覆盖 `lubanagent/observability/trace/`（`writer.py`）、`lubanagent/observability/cost/`（`advice.py`/`estimate.py`/`pricing.py`/`report.py`）、`lubanagent/observability/evals/`（`assertions.py`/`dataset.py`/`judge.py`/`replay.py`/`report.py`/`runner.py`）。核心职责：`TraceWriter` 把每次 Run 的生命周期事件、Token 用量、费用同步落内部 DB（`runs`/`traces`/`trace_events`/`token_usages`/`cost_records` 表），作为"评测（F6）、成本归因（F7）、工作台 Trace 查看（F10）的唯一数据源"（来源：`lubanagent/observability/trace/writer.py:1`、架构设计 §6.1）；成本子域做事前 Token/费用估算与事后归因报表；评测子域基于真实 `AgentRuntime` 运行结果做断言（工具/输出/judge/拒答四类，含 `expect_refusal` 拒答硬指标与 `wrong_answer_rate` 错答率）、LLM-judge、回归对比与录制重放。本模块不包含外部后端适配器（Langfuse/LangSmith/Noop/SafeBackend），那部分属于 `observability-adapters` 模块。
+本模块是 LubanAgent 观测体系中"内部 DB 双写主笔 + 应用日志关联落库 + 成本治理 + 评测体系"四个子域的集合，覆盖 `lubanagent/observability/trace/`（`writer.py`）、`lubanagent/observability/logging.py`（`DatabaseLogWriter`）、`lubanagent/observability/cost/`（`advice.py`/`estimate.py`/`pricing.py`/`report.py`）、`lubanagent/observability/evals/`（`assertions.py`/`dataset.py`/`judge.py`/`replay.py`/`report.py`/`runner.py`）。核心职责：`TraceWriter` 把每次 Run 的生命周期事件、Token 用量、费用同步落内部 DB（`runs`/`traces`/`trace_events`/`token_usages`/`cost_records` 表），作为"评测（F6）、成本归因（F7）、工作台 Trace 查看（F10）的数据源"（来源：`lubanagent/observability/trace/writer.py:1`、架构设计 §6.1）；`DatabaseLogWriter` 把携带 ContextVar 关联键的程序日志异步写入 `application_logs`；成本子域做事前 Token/费用估算与事后归因报表；评测子域基于真实 `AgentRuntime` 运行结果做断言（工具/输出/judge/拒答四类，含 `expect_refusal` 拒答硬指标与 `wrong_answer_rate` 错答率）、LLM-judge、回归对比与录制重放。本模块不包含外部后端适配器（Langfuse/LangSmith/Noop/SafeBackend），那部分属于 `observability-adapters` 模块。
 
 ## 接口契约
 
 ### HTTP
 
-无——本模块不直接暴露 HTTP 路由；`lubanagent/api/routes/traces.py`（`GET /v1/traces/{run_id}`）与 `lubanagent/api/routes/evals.py`（`GET /v1/evals` 列表 + `GET /v1/evals/{result_id}` 详情，读 `EvalRepository` 落库的报告）属于 `api-app-cli` 模块，消费本模块的 `TraceRepository`/评测能力，详见该模块文档。
+无——本模块不直接暴露 HTTP 路由；`lubanagent/api/routes/traces.py`（`GET /v1/traces/{run_id}`）、`lubanagent/api/routes/diagnostics.py`（`GET /v1/logs` 与 `/v1/diagnostics/runs*`）与 `lubanagent/api/routes/evals.py`（`GET /v1/evals` 列表 + `GET /v1/evals/{result_id}` 详情，读 `EvalRepository` 落库的报告）属于 `api-app-cli` 模块，消费本模块的 `TraceRepository`/`ApplicationLogRepository`/评测能力，详见该模块文档。
+
+#### `lubanagent.observability.logging.DatabaseLogWriter`
+
+| 方法/属性 | 签名/语义 | 说明 | 边界 |
+|---|---|---|---|
+| `__init__` | `(db: Database, *, capacity: int = 10000, retention_days: int = 30)` | 创建每应用独立 sink、有界队列与失败计数 | 队列容量和保留期来自 `Settings` |
+| `enqueue(record: logging.LogRecord) -> None` | `CorrelationFilter` 同步调用 | 深拷贝 extras、脱敏并截断文本（message/exception UTF-8 上限 32 KiB，extras 序列化上限 16 KiB，超限替换为 truncated 标记与 4 KiB 预览），构造含关联键的 dict 后 `put_nowait`；忽略 SQLAlchemy/aiosqlite DEBUG 记录 | 队列满只增加 `dropped_count`，不阻塞调用方 |
+| `start() / close()` | 异步后台 flush / 先停止接收并等待 in-flight 批次提交，再 flush 剩余队列 | `create_app` lifespan 启动与关闭时调用；`close()` 后不再接收新日志 | 关闭前 flush 完剩余队列，进程崩溃仍可能丢未写批次 |
+| `flush()` | 每次取队列快照后连续写多批，每批最多 200 条，`log_context(persist_logs=False)` 内写库；每小时清理过期记录 | 失败写 stderr 类型名并累计 `write_failures` 与批次丢失数，不递归 logger | 后台每 0.25 秒触发一次 flush；`GET /v1/logs` 和诊断详情先显式 flush |
 
 ### RPC / MQ / Cron
 
@@ -317,6 +326,7 @@ build_run_tree_cost_report(session, run_id)   # H11 Run 树归因
 ## 边界规则
 
 - **`finish_run` 强制要求终态 Run**：`run.status` 不在 `{COMPLETED, FAILED, CANCELLED}` 时直接 `raise LubanError(ErrorCode.VALIDATION_ERROR)`，不允许把中间态 Run 标记为"结束"（来源：`lubanagent/observability/trace/writer.py:97-103`）。
+- **日志可用性不等于业务事务性**：`DatabaseLogWriter` 队列满或数据库批次失败不抛回业务调用方；批次会丢失并在 `dropped_count` / `write_failures` 暴露。凭证文本与 secret 键 extras 入库前尽力脱敏并截断，SQL DEBUG 绑定值不落库，但这不是任意 PII 识别、也不是自动捕获所有 `print` / 第三方日志的保证。
 - **`resume_run` 只追加不重建**：续跑沿用原 `traces` 行与事件流（`RUN_RESUMED` 追加在同一 trace 内，不重发 `RUN_STARTED`），Trace 连续性由同一 `trace_id` 保证；原 trace 不存在抛 `RUN_NOT_FOUND`（来源：`writer.py:48-62`）。
 - **`emit` 依赖 Trace 先建档**：若事件的 `run_id` 既不在内存缓存也查不到 `TraceRow`，直接 `raise LubanError(ErrorCode.RUN_NOT_FOUND)`，即 `start_run` 必须先于任何 `emit` 调用完成（来源：`writer.py:64-70`）。
 - **`emit` 入库 payload 是脱敏审计副本（H07）**：`TraceWriter.emit` 落库前构造新 `TraceEvent`、payload 经 `redact_value` 脱敏（秘密键/凭证形态 URL/bearer 字符串 → `[REDACTED]`），不改调用方原事件（`writer.py:48-61`）；即内部 DB 的 source of truth 保留的是可排查业务文本 + 脱敏秘密的审计副本。安全重放（`evals.replay`）遇脱敏记录（如含 `[REDACTED]` 的 `tool_calls.args`）须显式拒绝，不可当真实参数重放——该拒绝逻辑属 H10 待落地。
@@ -335,7 +345,7 @@ build_run_tree_cost_report(session, run_id)   # H11 Run 树归因
 |---|---|
 | `TraceEventType` | `lubanagent.core.trace.TraceEventType`（`str, Enum`）定义的全部事件类型（19 种），本模块只是消费方（不定义枚举本身）：`RUN_STARTED`/`RUN_RESUMED`/`RUN_COMPLETED`/`RUN_FAILED`/`RUN_CANCELLED`/`STEP_STARTED`/`STEP_COMPLETED`/`MODEL_CALL_STARTED`/`MODEL_TOKEN_DELTA`/`MODEL_CALL_COMPLETED`/`TOOL_CALL_STARTED`/`TOOL_CALL_COMPLETED`/`TOOL_CALL_FAILED`/`TOOL_APPROVAL_REQUESTED`/`TOOL_APPROVAL_RESOLVED`/`BUDGET_WARNING`/`BUDGET_EXCEEDED`/`MODEL_FALLBACK`/`KNOWLEDGE_NO_HIT`（来源：`lubanagent/core/trace.py:12-31`；`RUN_RESUMED` 由 `TraceWriter.resume_run` 在 resume 续跑开始时落库，SSE 侧映射为 `run.resumed`） |
 | 七问 | PRD/架构设计所称"每次 Run 可回答的七个问题"：Agent 版本/模型/Prompt/工具调用/Token/费用/结束原因；本模块的 `runs`/`token_usages`/`cost_records`/`trace_events` 四表组合是这七问的数据来源（来源：架构设计 §9「每次 Run 可回答 PRD 的七问」、`Run` 领域模型字段 `agent_version`/`model_key`/`end_reason`/`token_usage`/`cost`） |
-| `source of truth` | 内部 DB（本模块四张核心表）是评测/成本/工作台 Trace 查看的唯一数据源，外部后端（Langfuse/LangSmith）只是可插拔的外发目标，不作为查询依据；自 H07 起落库的 `trace_events.payload` 是脱敏审计副本（秘密键/凭证形态字符串 → `[REDACTED]`），不是原始 payload 的逐字节复刻（来源：`writer.py:1,48-61`、架构设计 §6.1） |
+| `source of truth` | 内部 DB（本模块核心表与 `application_logs`）是评测/成本/工作台 Trace 与日志排查的数据源，外部后端（Langfuse/LangSmith）只是可插拔的外发目标，不作为查询依据；自 H07 起落库的 `trace_events.payload` 是脱敏审计副本（秘密键/凭证形态字符串 → `[REDACTED]`），不是原始 payload 的逐字节复刻（来源：`writer.py:1,48-61`、架构设计 §6.1） |
 | `export_failures` | 外部观测后端写失败的留痕表，重试消费方是 `observability-adapters` 模块 `SafeBackend` 的 drain 收尾回放（成功删/失败计次/默认 3 次达上限放弃）；表定义在本模块共享的 `persistence/models/trace.py`，但写入方属 `observability-adapters` 模块的 `SafeBackend` |
 | 中立 error verdict | `AssertionVerdict.error` 非空时的判定结果：既不算通过也不算失败，从 pass/fail 聚合中排除，仅用于呈现"判定过程本身出错"这一事实（来源：`assertions.py:4-5`） |
 | script（录制重放） | `script_from_events` 从历史 `MODEL_CALL_COMPLETED` 事件提取的模型输出序列，喂给 `ScriptedFakeChatModel`（`lubanagent.model.fake_definition`）做确定性重跑，条目为纯文本 `str` 或 `{"tool_calls": [...]}` 字典（来源：`replay.py:18-44`） |
@@ -359,7 +369,7 @@ build_run_tree_cost_report(session, run_id)   # H11 Run 树归因
 
 | 被影响方 | 触发接口 | 触发内容 |
 |---|---|---|
-| `api-app-cli` 模块（`lubanagent/api/routes/traces.py`、`evals.py`） | `GET /v1/traces/{run_id}`、`GET /v1/evals`、`GET /v1/evals/{result_id}` | 消费 `TraceRepository`（本模块共享的仓储）返回 `Trace` 头 + 全部 `TraceEvent`；evals 路由经 `EvalRepository` 读落库的 `EvalReport`（领域模型本体在本模块路径 re-export 的 `core/evaluation.py`） |
+| `api-app-cli` 模块（`lubanagent/api/routes/traces.py`、`diagnostics.py`、`evals.py`） | `GET /v1/traces/{run_id}`、`GET /v1/logs`、`GET /v1/diagnostics/runs*`、`GET /v1/evals*` | 消费 `TraceRepository` 返回 `Trace` 头 + 全部 `TraceEvent`；诊断路由先 flush `DatabaseLogWriter` 再读 `ApplicationLogRepository` 和 `RunRepository` 执行树；evals 路由经 `EvalRepository` 读落库的 `EvalReport` |
 | `api-app-cli` 模块（`lubanagent/cli/main.py::luban eval run`） | 命令行调用 | 依赖本模块 `EvalDataset`/`EvalReport`/`EvalRunner`/`LlmJudge`/`compare_reports`/`load_dataset` 完成评测执行、报告生成与回归对比，跑完 `EvalRepository.save_report` 把完整 `EvalReport` + 聚合列落 `eval_results` |
 | `observability-adapters` 模块（`SafeBackend`） | 未直接调用，共享 `export_failures` 表定义 | `SafeBackend` 失败降级链路把外发失败写入本模块所属 `persistence/models/trace.py` 中定义的 `ExportFailureRow`（经 `ExportFailureRepository`） |
 | `runtime`/`graph` 模块 | `TraceWriter(db)` 实例化 + 全部方法调用 | `AgentRuntime`（`agent_loop.py`）与 `GraphRunner`（`graph/runner.py`）在 Run 生命周期各阶段调用 `start_run`/`resume_run`/`emit`/`record_model_usage`/`finish_run`/`record_cost`，是本模块 `TraceWriter` 的唯一调用方（`resume_run` 供 `stream_resume` 崩溃续跑登记） |

@@ -17,7 +17,7 @@ curl -N -X POST http://localhost:8000/v1/agents/customer-service-bot/runs \
 
 请求体两个常用可选字段：
 - `session_id`——**会话归组**。同一会话的多轮 Run 用同一个 id 串联，Agent 开了会话/摘要记忆时按它读写历史；不传则每次 Run 独立。
-- `user_id`——**用户排查标签**。业务系统把自己侧的用户 id 传进来，Run/Trace 落库时原样存下，之后 `GET /v1/runs?user_id=...` 可按用户过滤定位问题。注意它只是透传的观测标签，引擎**不做用户管理、不做鉴权**——权限由你的业务网关负责。
+- `user_id`——**用户排查标签**。业务系统把自己侧的用户 id 传进来，Run/Trace 落库时原样存下，之后 `GET /v1/runs?user_id=...` 可按用户过滤定位问题。注意它只是透传的观测标签，不是平台账号外键；平台鉴权和功能权限由后端 RBAC 裁决，业务组织权限仍由你的业务系统负责。
 
 查历史 Run：`GET /v1/runs?agent_key=customer-service-bot&session_id=sess-123&user_id=u-42&limit=50`（`agent_key`/`session_id`/`user_id`/`limit` 均可选）。
 

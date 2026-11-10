@@ -11,24 +11,40 @@ import sqlite3
 from pathlib import Path
 
 from alembic import command as alembic_command
+from alembic.autogenerate import compare_metadata
 from alembic.config import Config as AlembicConfig
+from alembic.migration import MigrationContext
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.dialects import mysql
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 from lubanagent.cli.main import _restore_logging, _snapshot_logging
 from lubanagent.config import Settings
 from lubanagent.core import EvalCase, EvalDataset, EvalReport
-from lubanagent.persistence import Database, EvalRepository
+from lubanagent.persistence import Base, Database, EvalRepository, SecurityRepository
+from lubanagent.persistence.repositories.log import ApplicationLogRepository
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PRE_0008 = "c1d2e3f4a5b6"
+_PRE_0011 = "f5a6b7c8d9e0"
+_ACCESS_TABLES = frozenset(
+    {
+        "application_logs",
+        "permissions",
+        "roles",
+        "role_permissions",
+        "users",
+        "user_roles",
+        "auth_sessions",
+    }
+)
 
 
 def _alembic_run(url: str, direction: str, revision: str) -> None:
     """跑一条 alembic 命令（同 CLI migrate 的 URL 注入与 logging 快照恢复）。"""
     config = AlembicConfig(str(_REPO_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
-    config.set_main_option(
-        "sqlalchemy.url", Settings(database_url=url).sync_database_url
-    )
+    config.set_main_option("sqlalchemy.url", Settings(database_url=url).sync_database_url)
     previous = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = url
     snapshot = _snapshot_logging()
@@ -98,3 +114,95 @@ def test_migration_0008_three_way_roundtrip(tmp_path: Path) -> None:
             await db.close()
 
     asyncio.run(_verify())
+
+
+def test_migration_0011_roundtrip_schema_parity_and_orm_read_write(tmp_path):
+    url = f"sqlite+aiosqlite:///{tmp_path}/logs-security.db"
+    _alembic_run(url, "upgrade", _PRE_0011)
+    with sqlite3.connect(_sync_path(url)) as connection:
+        connection.execute(
+            "INSERT INTO eval_datasets (key, name, version, cases) "
+            "VALUES ('baseline', 'existing', '1', '[]')"
+        )
+    _alembic_run(url, "upgrade", "head")
+    engine = create_engine(url.replace("+aiosqlite", ""))
+    with engine.connect() as connection:
+        assert _ACCESS_TABLES <= set(inspect(connection).get_table_names())
+        context = MigrationContext.configure(
+            connection,
+            opts={
+                "include_object": lambda obj, name, kind, reflected, compared: (
+                    name in _ACCESS_TABLES if kind == "table" else True
+                )
+            },
+        )
+        assert compare_metadata(context, Base.metadata) == []
+    engine.dispose()
+
+    async def verify():
+        from datetime import UTC, datetime
+
+        db = Database(url)
+        try:
+            async with db.session() as session:
+                repo = SecurityRepository(session)
+                await repo.seed()
+                user = await repo.create_user(
+                    username="migrated-admin",
+                    display_name="admin",
+                    password="migration-test-password",
+                    role_keys=["admin"],
+                )
+                token, _, _ = await repo.login(
+                    username="migrated-admin", password="migration-test-password", session_hours=8
+                )
+                assert (await repo.user_by_token(token))["id"] == user["id"]
+                await ApplicationLogRepository(session).add_batch(
+                    [
+                        {
+                            "id": "migration-log",
+                            "created_at": datetime.now(UTC),
+                            "level": "INFO",
+                            "logger": "test.migration",
+                            "message": "persisted",
+                            "pathname": "test.py",
+                            "lineno": 1,
+                            "extra": {},
+                            "request_id": "migration-request",
+                            "session_id": "migration-session",
+                        }
+                    ]
+                )
+            async with db.session() as session:
+                _, total = await ApplicationLogRepository(session).list_logs(
+                    request_id="migration-request"
+                )
+                assert total == 1
+                assert await SecurityRepository(session).revoke_token(token)
+        finally:
+            await db.close()
+
+    asyncio.run(verify())
+    _alembic_run(url, "downgrade", _PRE_0011)
+    with sqlite3.connect(_sync_path(url)) as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master")}
+        assert not tables & _ACCESS_TABLES
+        assert connection.execute(
+            "SELECT name FROM eval_datasets WHERE key = 'baseline'"
+        ).fetchone() == ("existing",)
+    _alembic_run(url, "upgrade", "head")
+    engine = create_engine(url.replace("+aiosqlite", ""))
+    with engine.connect() as connection:
+        assert _ACCESS_TABLES <= set(inspect(connection).get_table_names())
+    engine.dispose()
+
+
+def test_new_access_tables_compile_for_mysql_without_text_indexes():
+    dialect = mysql.dialect()
+    for name in _ACCESS_TABLES:
+        table = Base.metadata.tables[name]
+        statement = str(CreateTable(table).compile(dialect=dialect))
+        assert f"CREATE TABLE {name}" in statement
+        for index in table.indexes:
+            assert str(CreateIndex(index).compile(dialect=dialect))
+    assert next(iter(Base.metadata.tables["users"].indexes)).unique

@@ -37,6 +37,21 @@ class TraceRepository:
             ended_at=row.ended_at,
         )
 
+    async def get_trace(self, identifier: str) -> Trace | None:
+        """同时接受原 Run ID 与数据库 Trace ID，不要求调用方截字符串猜 ID。"""
+        row = await self._session.scalar(
+            select(TraceRow).where((TraceRow.run_id == identifier) | (TraceRow.id == identifier))
+        )
+        if row is None:
+            return None
+        return Trace(
+            id=row.id,
+            run_id=row.run_id,
+            status=RunStatus(row.status),
+            started_at=row.started_at,
+            ended_at=row.ended_at,
+        )
+
     async def add_event(self, event: TraceEvent) -> None:
         trace_row = await self._session.scalar(
             select(TraceRow).where(TraceRow.run_id == event.run_id)

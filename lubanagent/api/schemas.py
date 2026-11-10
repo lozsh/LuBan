@@ -23,7 +23,7 @@ class RunCreateRequest(BaseModel):
     """POST /v1/agents/{key}/runs 请求体；history 为 OpenAI 风格，v1 不查库（D3-2）。"""
 
     input: str
-    session_id: str | None = None
+    session_id: str | None = Field(default=None, max_length=128)
     # 透传观测标签（排查定位用），引擎不做用户管理
     user_id: str | None = Field(default=None, max_length=128)
     version: int | None = None

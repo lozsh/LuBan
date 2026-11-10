@@ -23,10 +23,10 @@ async def test_approval_flow(app, client):
     )
     assert decided.status_code == 200
     assert decided.json()["status"] == "approved"
-    assert decided.json()["decided_by"] == "anonymous"
+    assert decided.json()["decided_by"] == "op"
     assert decided.json()["decided_at"] is not None
     assert (await manager.get(pending.id)).status == "approved"
-    assert (await manager.get(pending.id)).decided_by == "anonymous"
+    assert (await manager.get(pending.id)).decided_by == "op"
     assert (await manager.get(pending.id)).decided_at is not None
 
     # 已终结的审批不可再决定

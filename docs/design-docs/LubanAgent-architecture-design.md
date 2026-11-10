@@ -117,8 +117,8 @@ lubanagent-repo/
 │   │   ├── models/                   #   SQLAlchemy 模型（agents/agent_versions/prompts/prompt_versions/runs/traces/...）
 │   │   └── repositories/             #   仓储层（含 resolve_prompt_reference：Agent 引用 Prompt 落库前解析）
 │   ├── api/                          # REST/SSE 接入骨架（F8）
-│   │   ├── routes/                   #   /v1/agents/{key}/runs、/v1/prompts 等
-│   │   ├── auth.py                   #   API Key 鉴权（委托给 AuthProvider）
+│   │   ├── routes/                   #   /v1/agents/{key}/runs、/v1/prompts、logs、diagnostics、security 等
+│   │   ├── auth.py                   #   API Key / DB 会话 / AuthProvider 与 RBAC 裁决
 │   │   ├── deps.py                   #   FastAPI 依赖注入
 │   │   ├── errors.py                 #   HTTP 错误映射
 │   │   └── schemas.py                #   请求/响应 Pydantic 模型
@@ -276,7 +276,7 @@ flowchart TB
 | `lubanagent.memory` | 会话/摘要/长期记忆策略 | 不强制启用 |
 | `lubanagent.observability` | Trace 写库 + 评测 + 成本 + 外发适配器 | 不依赖外部 SaaS 才能跑 |
 | `lubanagent.persistence` | SQLAlchemy 模型 + 仓储 + Alembic | 不含业务规则 |
-| `lubanagent.api` | REST/SSE 路由 + 鉴权委托 + 错误映射 | 不含业务逻辑 |
+| `lubanagent.api` | REST/SSE 路由 + 鉴权/RBAC 裁决 + 错误映射 + 平台日志/诊断查询 | 不含业务逻辑；不做租户/部门行级数据范围 |
 | `lubanagent.config` | 环境化配置 | 不读用户业务配置 |
 | `lubanagent.app` | `create_app()` 装配 + lifespan | 不注册业务路由 |
 | `lubanagent.cli` | `luban` 命令行 | 不含业务命令 |
@@ -523,7 +523,7 @@ pip install -e .       # 如有 [framework] 依赖变更
 | F5 运行观测 | 默认 | `observability/trace/`、`observability/adapters/`、`persistence/models/trace.py`（含 `export_failures` 表） | `app/main.py`（可选 `register_observability_backend` 自定义后端） | Trace 内部 DB 为 source of truth；外发后端可插拔 |
 | F6 评测体系 | 默认 | `observability/evals/`（测试集加载、断言、LLM-judge、回归、录制重放、A/B 对比）、`cli/`（`luban eval`） | `app/datasets/*.yaml` | 评测数据是用户资产 |
 | F7 成本治理 | 默认 | `observability/cost/`、`runtime/budget_guard.py`、`runtime/context_builder.py`（KV-cache 友好不变量） | 无 | 熔断挂在 Runtime |
-| F8 工程基座 | 默认 | `api/routes/`、`api/auth.py`、`api/deps.py`、`config/settings.py`、`persistence/`、`docker/`、`app/factory.py` | `app/main.py`（可选 `register_auth`）、`app/config/.env` | 鉴权可插拔 |
+| F8 工程基座 | 默认 | `api/routes/`（含 `security.py`、`diagnostics.py`）、`api/auth.py`、`api/logging.py`、`api/deps.py`、`config/settings.py`、`config/logging.py`、`observability/logging.py`、`persistence/models/security.py`、`persistence/models/log.py`、`persistence/repositories/security.py`、`persistence/repositories/log.py`、`docker/`、`app/factory.py` | `app/main.py`（可选 `register_auth`）、`app/config/.env` | API Key / DB 会话 / AuthProvider 兼容；平台 RBAC 后端强制 |
 | F9 知识与记忆 | 可选 | `knowledge/`、`memory/` | `app/knowledge_sources/*` | 可选启用，简单 Agent 不引入 |
 | F10 开发者工作台 | 可选 | `lubanagent/ui/`（前端工程，独立子目录，用户少改） | 无 | 工作台是开发辅助，不做托管 |
 | F11 图编排 | 可选 | `graph/builder.py`、`graph/checkpoint.py`、`graph/tool_adapter.py` | `app/graphs/*.py` | 流程作 Tool 挂入 Agent |
@@ -541,7 +541,7 @@ pip install -e .       # 如有 [framework] 依赖变更
 
 观测数据有**两个去向**，职责分离：
 
-1. **内部 DB（always on）**：`runs` / `traces` / `trace_events` / `token_usages` / `cost_records` 表，由 `lubanagent.observability.trace.TraceWriter` 同步写入。这是**评测（F6）、成本归因（F7）、工作台 Trace 查看（F10）的唯一数据源**，不依赖任何外部 SaaS，保证"数据不出企业边界"。
+1. **内部 DB（always on）**：`runs` / `traces` / `trace_events` / `token_usages` / `cost_records` 表，由 `lubanagent.observability.trace.TraceWriter` 同步写入。程序日志另入 `application_logs`。这两类持久化数据是**评测（F6）、成本归因（F7）、工作台 Trace 与日志排查（F10）的数据源**，不依赖任何外部 SaaS，保证"数据不出企业边界"。
 2. **外部后端（optional，可插拔）**：通过 `ObservabilityBackend` 适配器把 Trace 事件流外发到 Langfuse / LangSmith 等，用于复用其 UI、告警、看板。**关掉也不影响任何核心功能**。
 
 ```mermaid
@@ -694,7 +694,7 @@ services:
 | 可扩展 | 新模型/新 Tool/新 Agent 不改框架 | 扩展点 Protocol + 装饰器自动发现 + Registry |
 | 可测试 | Tool/Agent/Graph 可独立单测 | `tool/mock.py` + `luban eval` + FakeModel 工厂 |
 | 可观测 | 每次 Run 可回答 PRD §8 七问 | `observability/trace/` + 内部 DB 始终写 |
-| 安全 | 权限/审批/金额由代码执行 | `tool/executor.py` 强制校验 + `tool/approval.py` 人工节点 + `graph/` 代码级强制流程 |
+| 安全 | API 权限/工具审批/金额由代码执行 | `api/auth.py` 逐请求加载并裁决平台 RBAC + `tool/executor.py` 强制校验 + `tool/approval.py` 人工节点 + `graph/` 代码级强制流程；不做租户/部门/行级隔离 |
 | 成本 | 事前估算 + 事中熔断 + 事后归因 | `runtime/budget_guard.py` + `observability/cost/` |
 | 部署 | 一键 Docker | `docker-compose.yml`（app + MySQL + Langfuse 自部署 + mock-biz） |
 | 无 SaaS 依赖 | 关掉所有外部后端仍可跑 | 观测双写、内部 DB source of truth、`OBSERVABILITY_BACKEND` 可切 `none`（缺省 `langfuse` 自部署，非 `none`） |

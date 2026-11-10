@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### 平台日志、诊断与 RBAC
+
+- `[framework]` **统一执行日志关联**：`core/log_context` 用 ContextVar 贯穿 `request_id`、`session_id`、`run_id`、`trace_id`、`parent_run_id`、`root_run_id` 和 `subject`；同步线程经 `anyio.to_thread` 继承上下文。`RunRequest` 新增 `request_id`、`root_run_id`、`subject`，API 创建 Run 时传入；runtime、图/团队子 Run 和工具执行复用同一关联链。HTTP 中间件为每个响应追加 `X-Request-ID`，错误响应也保留该 ID；它只用于日志过滤，不落 `runs` 表。
+- `[framework]` **结构化日志入库**：默认开启 `LOG_DATABASE_ENABLED`，`application_logs` 保存消息、异常、来源、主体、关联 ID 和 `extra`；入队前做有界截断和凭证形态脱敏，SQL DEBUG 绑定值不落库。写入走有界异步队列（默认 10000，保留 30 天，后台每 0.25 秒刷新一次，每次刷新取队列快照连续写多批、每批最多 200 条，单条正文/异常 UTF-8 上限 32 KiB，extras 序列化上限 16 KiB）；失败不阻断业务，但队列满或批次失败可能丢日志，`dropped_count` / `write_failures` 如实暴露。该机制不是自动捕获所有 `print` 或第三方日志，凭证脱敏不是任意 PII 保证。
+- `[framework]` **诊断 API 与工作台**：新增 `GET /v1/logs`（关联 ID、级别、logger、关键词、时间、分页过滤）、`GET /v1/diagnostics/runs`（session/run/trace/user/status 过滤）、`GET /v1/diagnostics/runs/{run_or_trace_id}`（根 Run、后代 Run、Trace 事件与日志数量）。`RunRepository` 提供真实父子树查询和诊断分页；诊断展示层脱敏历史 Run 输入输出。工作台新增 `/diagnostics` 页面。
+- `[framework]` **平台账号与 RBAC**：新增数据库用户、角色、权限、用户角色映射和哈希会话表；提供登录、当前身份、退出与用户/角色/权限管理 API。内置 10 个权限和 admin/operator/auditor/viewer 四个默认角色；后端在每个 `/v1` 请求逐路径裁决，UI 菜单和路由 guard 只是展示层。Master API Key 保持 bootstrap admin，自定义 AuthProvider 优先级保留且只信任服务端 scopes。`/security` 页面支持管理；前端权限来自 `/v1/auth/me` 并只在内存保存令牌。生产必须 `AUTH_ENABLED=true`；`AUTH_DATABASE_ENABLED=true` 可无 API Key 启动，`LUBAN_ADMIN_PASSWORD` 为 12–256 位一次性引导密码，无默认密码。令牌只存 SHA-256 哈希，默认 8 小时；禁用、改密和退出立即撤销，角色/权限变化不撤销会话、经每请求重载立即生效。
+- `[migration]` **`0011_correlated_logs_access_control`**：新建 `application_logs`（含 6 个查询索引）与 `permissions`、`roles`、`role_permissions`、`users`、`user_roles`、`auth_sessions` 共 7 张表；模型层实测总表数从 23 增至 30。升级：`luban migrate`；回滚：`alembic downgrade -1` 删除这 7 张表。含日志或账号会话数据时先备份。
+
 ### Super-agent 对照借鉴落地
 
 - `[framework]` **异步工具调用**（`TOOL_ASYNC_ENABLED`，默认关闭）：工具可声明 `execution_mode="async"`，开启后被调用立即返回 `task_id` 转后台执行，完成发 `task.finished` 事件；框架自动注入 `task_result` / `task_stop` 伴生工具供模型收结果与终止。审批闸门仍在后台启动前同步完成，Run 收尾清理未收取任务并在终态事件 `abandoned_tasks` 留痕；任务不持久化，进程重启后 `task_result` 如实返回 `not_found`。关闭开关时 async 声明的工具按普通同步工具执行。
@@ -20,6 +28,9 @@
 ### CI 与交付
 
 - `[shared]` 新增冷启动端到端冒烟（D1-9 ⑥ 收官）：`scripts/cold_start_smoke.py` 零密钥走通「migrate → init --fill-missing → uvicorn 起服务 → /health → 工作台 / 与 /chat（ui/dist 存在时）→ SSE 对话 customer-service-bot（断言 run.started / run.completed、无 run.failed）」，临时 SQLite 库 + 随机端口 + 240s 总死线；CI 新增 `cold-start` job 调用（`.github/workflows/ci.yml`），兑现 PRD §8"冷启动体感由 CI 端到端回归守卫"承诺。
+- `[shared]` **迁移降级 MySQL 兼容修复**：`0001_initial_schema` downgrade 不再先 `drop_index` 再 `drop_table`（MySQL 1553：FK 仍在时显式删除其支撑索引会失败），改为只删表、索引随表删除；`0011` 的 `auth_sessions` 降级已按同规则先删表。SQLite upgrade→downgrade→upgrade 三向测试通过；MySQL 真实降级以远端 CI 结果为准，本条不声称已在 MySQL 实跑验证。
+- `[shared]` **测试稳定性收口**：SSE 事件序列测试不再断言模型 token 流与工具子流的全局墙钟先后（LangGraph 可先调度工具），改为因果边界——`run.started` 早于首个事件、token 在 `run.completed` 终态前、`tool.started` < `tool.finished` < 终态；CPU 限额测试接受 Linux `soft=hard` 下内核直接 `SIGKILL`（`exit in {SIGXCPU, SIGKILL}`）并断言 10 秒内终止（不等 20 秒外层超时），不放宽任何代码层限额。
+- `[shared]` **依赖公告清零刷新**：`uv.lock` 仅升级 `certifi` 2026.7.22→2026.10.23、`pypdf` 6.20.1→6.21.4（满足各自安全修复下限，其余锁定版本不动）；本地 `uv sync --frozen` 后 pip-audit 实测 0 命中，记录见 `docs/security/dependency-advisories.md`。
 
 ### UI 设计准则
 

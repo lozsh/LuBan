@@ -186,9 +186,11 @@ async def test_sse_event_sequence(db, registry, make_runtime, monkeypatch):
     assert names[0] == "run.started"
     assert names[-1] == "run.completed"
     assert "token.delta" in names
-    # run.started → token.delta → tool.started → tool.finished → run.completed
+    # 两条子流可能交错（LangGraph 先调度工具，模型文本事件稍后转发）。
+    # 检查因果边界而不是假定 model stream/tool stream 的全局墙钟顺序。
     assert names.index("run.started") < names.index("token.delta")
-    assert names.index("token.delta") < names.index("tool.started")
+    assert names.index("token.delta") < names.index("run.completed")
+    assert names.index("run.started") < names.index("tool.started")
     assert names.index("tool.started") < names.index("tool.finished")
     assert names.index("tool.finished") < names.index("run.completed")
     # 终态唯一

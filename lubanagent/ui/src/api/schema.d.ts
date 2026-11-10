@@ -160,6 +160,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login_v1_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_v1_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Me */
+        get: operations["me_v1_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/brain-mappings": {
         parameters: {
             query?: never;
@@ -174,6 +225,40 @@ export interface paths {
         get: operations["list_brain_mappings_v1_brain_mappings_get"];
         /** Set Brain Mapping */
         put: operations["set_brain_mapping_v1_brain_mappings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/diagnostics/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Diagnostic Runs */
+        get: operations["diagnostic_runs_v1_diagnostics_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/diagnostics/runs/{identifier}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Diagnostic Detail */
+        get: operations["diagnostic_detail_v1_diagnostics_runs__identifier__get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -335,6 +420,23 @@ export interface paths {
         put?: never;
         /** Rechunk Knowledge Source */
         post: operations["rechunk_knowledge_source_v1_knowledge_sources__name__rechunk_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Logs */
+        get: operations["list_logs_v1_logs_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -504,6 +606,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/security/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Permissions */
+        get: operations["list_permissions_v1_security_permissions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/security/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Roles */
+        get: operations["list_roles_v1_security_roles_get"];
+        put?: never;
+        /** Create Role */
+        post: operations["create_role_v1_security_roles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/security/roles/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Role */
+        delete: operations["delete_role_v1_security_roles__key__delete"];
+        options?: never;
+        head?: never;
+        /** Update Role */
+        patch: operations["update_role_v1_security_roles__key__patch"];
+        trace?: never;
+    };
+    "/v1/security/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_v1_security_users_get"];
+        put?: never;
+        /** Create User */
+        post: operations["create_user_v1_security_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/security/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update User */
+        patch: operations["update_user_v1_security_users__user_id__patch"];
+        trace?: never;
+    };
     "/v1/skills": {
         parameters: {
             query?: never;
@@ -582,6 +772,26 @@ export interface paths {
         };
         /** Get Trace */
         get: operations["get_trace_v1_traces__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/watchdog/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Alerts
+         * @description 最近告警留痕（进程内 deque，重启清零）；WATCHDOG_ENABLED=false 时恒为空。
+         */
+        get: operations["list_alerts_v1_watchdog_alerts_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -674,6 +884,46 @@ export interface components {
             status: components["schemas"]["AgentStatus"];
             /** Version */
             version: number;
+        };
+        /** ApplicationLogOut */
+        ApplicationLogOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Exception */
+            exception?: string | null;
+            /** Extra */
+            extra?: {
+                [key: string]: unknown;
+            };
+            /** Id */
+            id: string;
+            /** Level */
+            level: string;
+            /** Lineno */
+            lineno: number;
+            /** Logger */
+            logger: string;
+            /** Message */
+            message: string;
+            /** Parent Run Id */
+            parent_run_id?: string | null;
+            /** Pathname */
+            pathname: string;
+            /** Request Id */
+            request_id?: string | null;
+            /** Root Run Id */
+            root_run_id?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Session Id */
+            session_id?: string | null;
+            /** Subject */
+            subject?: string | null;
+            /** Trace Id */
+            trace_id?: string | null;
         };
         /**
          * ApprovalOut
@@ -878,6 +1128,27 @@ export interface components {
              */
             decided_by: string;
         };
+        /** DiagnosticDetail */
+        DiagnosticDetail: {
+            /** Log Count */
+            log_count: number;
+            run: components["schemas"]["Run"];
+            /** Runs */
+            runs: components["schemas"]["Run"][];
+            /** Traces */
+            traces: components["schemas"]["TraceOut"][];
+        };
+        /** DiagnosticRunPage */
+        DiagnosticRunPage: {
+            /** Items */
+            items: components["schemas"]["Run"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
         /**
          * EndReason
          * @enum {string}
@@ -1058,6 +1329,8 @@ export interface components {
              * @default true
              */
             cite: boolean;
+            /** Inline Budget Chars */
+            inline_budget_chars?: number | null;
             /** Max Age Days */
             max_age_days?: number | null;
             /** No Hit Fallback */
@@ -1155,6 +1428,52 @@ export interface components {
             /** Updated At */
             updated_at?: string | null;
         };
+        /** LogPage */
+        LogPage: {
+            /**
+             * Dropped Count
+             * @default 0
+             */
+            dropped_count: number;
+            /** Items */
+            items: components["schemas"]["ApplicationLogOut"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+            /**
+             * Write Failures
+             * @default 0
+             */
+            write_failures: number;
+        };
+        /** LoginRequest */
+        LoginRequest: {
+            /** Password */
+            password: string;
+            /** Username */
+            username: string;
+        };
+        /** LoginResponse */
+        LoginResponse: {
+            /** Access Token */
+            access_token: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Token Type */
+            token_type: string;
+            user: components["schemas"]["SessionUserOut"];
+        };
+        /** LogoutResponse */
+        LogoutResponse: {
+            /** Logged Out */
+            logged_out: boolean;
+        };
         /** MemoryConfig */
         MemoryConfig: {
             /**
@@ -1162,6 +1481,8 @@ export interface components {
              * @default false
              */
             long_term: boolean;
+            /** Long Term Inline Budget Chars */
+            long_term_inline_budget_chars?: number | null;
             /**
              * Session
              * @default true
@@ -1278,6 +1599,13 @@ export interface components {
             /** Provider */
             provider: string;
         };
+        /** PermissionPublic */
+        PermissionPublic: {
+            /** Key */
+            key: string;
+            /** Name */
+            name: string;
+        };
         /**
          * PromptDefinition
          * @description Prompt 定义本体（当前版视图）; content 即 Agent instructions 的来源文本。
@@ -1331,6 +1659,34 @@ export interface components {
          * @enum {string}
          */
         RiskLevel: "low" | "medium" | "high";
+        /** RoleDeleteResponse */
+        RoleDeleteResponse: {
+            /** Deleted */
+            deleted: boolean;
+        };
+        /** RolePublic */
+        RolePublic: {
+            /** Key */
+            key: string;
+            /** Name */
+            name: string;
+            /** Permissions */
+            permissions: string[];
+            /**
+             * Protected
+             * @default false
+             */
+            protected: boolean;
+        };
+        /** RoleUpsertRequest */
+        RoleUpsertRequest: {
+            /** Key */
+            key?: string | null;
+            /** Name */
+            name: string;
+            /** Permissions */
+            permissions?: string[];
+        };
         /**
          * Run
          * @description 一次运行的完整记录; error 存 LubanError.to_dict()["error"]。
@@ -1409,6 +1765,38 @@ export interface components {
          * @enum {string}
          */
         RunStatus: "pending" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
+        /** SessionUserOut */
+        SessionUserOut: {
+            /** Auth Enabled */
+            auth_enabled: boolean;
+            /**
+             * Bootstrap
+             * @default false
+             */
+            bootstrap: boolean;
+            /** Created At */
+            created_at?: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /** Is Bootstrap */
+            is_bootstrap: boolean;
+            /** Permissions */
+            permissions: string[];
+            /** Role Keys */
+            role_keys: string[];
+            /** Roles */
+            roles: string[];
+            /** Subject */
+            subject: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Username */
+            username: string;
+        };
         /** SkillOut */
         SkillOut: {
             /**
@@ -1455,6 +1843,12 @@ export interface components {
              * @default false
              */
             approval_required: boolean;
+            /**
+             * Execution Mode
+             * @default sync
+             * @enum {string}
+             */
+            execution_mode: "sync" | "async";
             /**
              * Idempotent
              * @default false
@@ -1560,12 +1954,61 @@ export interface components {
          * TraceEventType
          * @enum {string}
          */
-        TraceEventType: "run_started" | "run_resumed" | "run_completed" | "run_failed" | "run_cancelled" | "step_started" | "step_completed" | "model_call_started" | "model_token_delta" | "model_call_completed" | "tool_call_started" | "tool_call_completed" | "tool_call_failed" | "tool_approval_requested" | "tool_approval_resolved" | "budget_warning" | "budget_exceeded" | "model_fallback" | "knowledge_no_hit";
+        TraceEventType: "run_started" | "run_resumed" | "run_completed" | "run_failed" | "run_cancelled" | "step_started" | "step_completed" | "model_call_started" | "model_token_delta" | "model_call_completed" | "tool_call_started" | "tool_call_completed" | "tool_call_failed" | "tool_approval_requested" | "tool_approval_resolved" | "budget_warning" | "budget_exceeded" | "model_fallback" | "knowledge_no_hit" | "watchdog_alert" | "tool_task_accepted" | "tool_task_completed" | "tool_task_failed" | "tool_task_cancelled";
         /** TraceOut */
         TraceOut: {
             /** Events */
             events: components["schemas"]["TraceEvent"][];
             trace: components["schemas"]["Trace"];
+        };
+        /** UserCreateRequest */
+        UserCreateRequest: {
+            /** Display Name */
+            display_name: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Password */
+            password: string;
+            /** Role Keys */
+            role_keys?: string[];
+            /** Username */
+            username: string;
+        };
+        /** UserPatchRequest */
+        UserPatchRequest: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Password */
+            password?: string | null;
+            /** Role Keys */
+            role_keys?: string[] | null;
+        };
+        /** UserPublic */
+        UserPublic: {
+            /**
+             * Bootstrap
+             * @default false
+             */
+            bootstrap: boolean;
+            /** Created At */
+            created_at?: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /** Role Keys */
+            role_keys: string[];
+            /** Updated At */
+            updated_at?: string | null;
+            /** Username */
+            username: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -1579,6 +2022,30 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * WatchdogAlert
+         * @description 一次告警；alert_id 确定性场景下可注入 clock 后仍唯一（uuid）。
+         */
+        WatchdogAlert: {
+            /** Age Seconds */
+            age_seconds: number;
+            /** Alert Id */
+            alert_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Event At */
+            last_event_at: string | null;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "stale_events" | "long_running";
+            /** Run Id */
+            run_id: string;
         };
     };
     responses: never;
@@ -1960,6 +2427,79 @@ export interface operations {
             };
         };
     };
+    login_v1_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_v1_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogoutResponse"];
+                };
+            };
+        };
+    };
+    me_v1_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionUserOut"];
+                };
+            };
+        };
+    };
     list_brain_mappings_v1_brain_mappings_get: {
         parameters: {
             query?: {
@@ -2011,6 +2551,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BrainMappingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    diagnostic_runs_v1_diagnostics_runs_get: {
+        parameters: {
+            query?: {
+                session_id?: string | null;
+                run_id?: string | null;
+                trace_id?: string | null;
+                user_id?: string | null;
+                status?: components["schemas"]["RunStatus"] | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticRunPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    diagnostic_detail_v1_diagnostics_runs__identifier__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identifier: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticDetail"];
                 };
             };
             /** @description Validation Error */
@@ -2309,6 +2917,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KnowledgeSourceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_logs_v1_logs_get: {
+        parameters: {
+            query?: {
+                session_id?: string | null;
+                run_id?: string | null;
+                trace_id?: string | null;
+                request_id?: string | null;
+                root_run_id?: string | null;
+                level?: string | null;
+                logger?: string | null;
+                q?: string | null;
+                from_time?: string | null;
+                to_time?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogPage"];
                 };
             };
             /** @description Validation Error */
@@ -2686,6 +3336,233 @@ export interface operations {
             };
         };
     };
+    list_permissions_v1_security_permissions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PermissionPublic"][];
+                };
+            };
+        };
+    };
+    list_roles_v1_security_roles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RolePublic"][];
+                };
+            };
+        };
+    };
+    create_role_v1_security_roles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleUpsertRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RolePublic"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_role_v1_security_roles__key__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleDeleteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_role_v1_security_roles__key__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleUpsertRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RolePublic"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_v1_security_users_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPublic"][];
+                };
+            };
+        };
+    };
+    create_user_v1_security_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPublic"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_v1_security_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPublic"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_skills_v1_skills_get: {
         parameters: {
             query?: never;
@@ -2852,6 +3729,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_alerts_v1_watchdog_alerts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchdogAlert"][];
                 };
             };
         };

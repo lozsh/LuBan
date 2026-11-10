@@ -37,7 +37,7 @@ scripts/dev.sh start    # 工作台 http://localhost:5173 ，API http://localhos
                         # 首次运行自动 npm install 拉前端依赖（约 1 分钟），之后秒起
 ```
 
-工作台 9 个管理页面 + 用户端聊天入口（`/chat`）怎么用，见[开发者工作台](./features/workbench.md)。
+工作台管理页面（含日志排查与用户权限）+ 用户端聊天入口（`/chat`）怎么用，见[开发者工作台](./features/workbench.md)。
 
 ## 4. 接真实模型（两步）
 

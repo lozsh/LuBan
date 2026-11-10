@@ -12,6 +12,7 @@ from lubanagent.persistence.repositories.prompt import (
     resolve_prompt_reference,
 )
 from lubanagent.persistence.repositories.run import RunRepository
+from lubanagent.persistence.repositories.security import SecurityRepository
 from lubanagent.persistence.repositories.skill import SkillRepository
 from lubanagent.persistence.repositories.trace import TraceRepository
 
@@ -26,6 +27,7 @@ __all__ = [
     "ModelRepository",
     "PromptRepository",
     "RunRepository",
+    "SecurityRepository",
     "SkillRepository",
     "TraceRepository",
     "resolve_prompt_reference",

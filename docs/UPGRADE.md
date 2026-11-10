@@ -173,7 +173,7 @@ python scripts/check_upstream_guard.py --base upstream/master --include-worktree
 
 **是什么**：每次含 `[migration]` 标签的发布，需要执行 Alembic 迁移把库表升级到最新 schema。
 
-**为什么**：LubanAgent 的 Agent 定义、模型映射、Run/Trace、评测、审批记录等是库内记录（架构 §4："定义本体是数据库记录，运行期可改、库内版本化"），schema 与代码强绑定。审批记录自迁移 `0010` 起落 `approvals` 表（决定不随进程重启丢失、可审计）。
+**为什么**：LubanAgent 的 Agent 定义、模型映射、Run/Trace、评测、审批记录、平台日志和访问控制等是库内记录（架构 §4："定义本体是数据库记录，运行期可改、库内版本化"），schema 与代码强绑定。审批记录自迁移 `0010` 起落 `approvals` 表；统一关联日志和平台 RBAC 自迁移 `0011` 起落 `application_logs` 与 6 张 security 表。
 
 **怎么用**：
 
@@ -202,7 +202,7 @@ alembic current
 
 MySQL 驱动需装可选依赖：`uv pip install -e ".[mysql]"`。
 
-**边界**：迁移链是线性的（当前 `0001 → … → 0010`），不能跳版本。回滚 `downgrade base` 会删表，生产环境务必先备份。三向迁移冒烟（upgrade → downgrade → upgrade）已在 CI 固化，但那只验证 schema 可逆，不验证你的业务数据可逆。
+**边界**：迁移链是线性的（当前 `0001 → … → 0011`），不能跳版本。回滚 `downgrade base` 会删表，生产环境务必先备份。三向迁移冒烟（upgrade → downgrade → upgrade）已在 CI 固化，但那只验证 schema 可逆，不验证你的业务数据可逆。
 
 ---
 
@@ -235,6 +235,9 @@ uv pip install --python .venv/bin/python -e ".[docs]"
 **Run checkpoint 与 resume（2026-10）**：`create_app` 缺省装配 `LubanCheckpointer(db)`——普通 Agent Run 从此在每个节点边界落 `checkpoints` 表（表由 0001 迁移建立，**零新迁移**）；崩溃/中断后的非终态 Run 可显式调 `POST /v1/runs/{run_id}/resume` 续跑（SSE，帧格式同创建 Run；校验在流开始前报错：Run/checkpoint 缺失 404 `RUN_NOT_FOUND`，终态/活跃/子 Run 422 `VALIDATION_ERROR`，未启用 checkpoint 500 `CONFIG_ERROR`）。**行为变化**：默认启用后普通 Run 会新增 checkpoint 写入；不想要这部分 DB 写入则 `create_app(checkpointer=None)` 显式关闭（此时 resume 返回 `CONFIG_ERROR`）。`luban eval run` 独立进程同语义装配（仅本进程可续跑）。**边界**：恢复是显式 API 调用、无自动重启恢复；互斥保护仅限单进程（多 worker/多实例部署勿对同一 Run 双 resume，风险 R14）；子 Run 归父编排、不可独立 resume；审批闸门语义不随 resume 改变（`lubanagent/runtime/agent_loop.py::stream_resume`、`lubanagent/persistence/checkpoint.py`）。
 
 **审批 Python API 破坏性变更（库内嵌消费方必读）**：`ApprovalManager` 的 `create_request`/`decide`/`get`/`pending` 由同步改为 **async**，`decide` 现在返回终结态 `ApprovalRequest`（原先返回 None）。按旧同步写法调用的代码不会报错但会**静默失效**（拿到 coroutine 未 await），升级时须补 `await`，例如 `request = await manager.create_request(...)`、`resolved = await manager.decide(id, True)`。`ApprovalRequest` 领域对象已从 `lubanagent.tool` 迁至 `lubanagent.core`（`from lubanagent.core import ApprovalRequest`）；`lubanagent.tool` 保留 re-export，旧 import 路径仍可用。
+
+**平台日志与 RBAC（Unreleased）**：合并后必须执行 `0011` 迁移，新增 7 张表；当前模型层表数实测为 30。生产保持 `AUTH_ENABLED=true`。要在无 `API_KEY` 时使用数据库账号，设 `AUTH_DATABASE_ENABLED=true`；首次空库引导可设置 `LUBAN_ADMIN_PASSWORD`（12–256 位）。旧 `API_KEY` 仍可作为 bootstrap admin 破窗身份，自定义 AuthProvider 优先级不变且只信任服务端 scopes；鉴权开启但无 API Key、无 provider 且数据库账号模式关闭时装配 fail fast。默认角色为 admin 全量、operator 配置/运行/审批/诊断/评测、auditor 只读加诊断、viewer 只读无诊断；不要把该 RBAC 扩展解释成租户、部门或行级授权。日志默认入库并保留 30 天；有界异步队列满或写入失败可能丢批次，业务不因日志失败中断，`/v1/logs` 暴露 `dropped_count` 和 `write_failures`。工作台账号/API Key 双登录令牌只存内存，刷新需重新认证；后端授权是唯一安全边界。
+**数据库鉴权引导（Unreleased）**：数据库账号模式下，无活跃 admin、无 API Key/provider 且未设置 `LUBAN_ADMIN_PASSWORD` 时，首次启动 lifespan 直接 `CONFIG_ERROR`；已有活跃 admin 重启不要求引导密码。角色/权限变化不撤销既有会话，靠每请求重载实时生效；仅默认 admin 角色受 protected 不可删除。
 
 **模型参数与连接边界收紧（H06）**：模型定义的 `params` 默认收紧为受控白名单——`openai_compat` 工厂仅允许推理与计价字段（`temperature`/`max_tokens`/`top_p`/`frequency_penalty`/`presence_penalty`/`n`/`stop`/`seed`/`timeout`/`max_retries`/`streaming`/`input_price_per_1k`/`output_price_per_1k`，`lubanagent/core/model.py:59-75`）；`base_url` 拒绝携带凭证（userinfo）、查询参数或片段的连接地址，`params` 拒绝覆盖连接字段（`model`/`api_key`/`base_url`/`default_headers`/`http_client`/`proxy` 等）与秘密形键（`*apikey`/`token`/`password`/`secret`/`credential` 等）。此前任意 `params` 会透传给 `ChatOpenAI` 构造并全量回显；**存量含自定义 `params` 的模型定义升级后执行会被拒绝**（`create_openai_compatible` 构造入口统一校验，`lubanagent/model/openai_compat.py:27-35`），需把自定义参数迁移为白名单字段或移除；工作台模型列表对白名单外字段只显示 `[REDACTED]`（`lubanagent/api/routes/models.py:14-25`）。本地 vLLM/Ollama 等 OpenAI 兼容内网地址不受影响（`base_url` 只禁凭证/查询/片段，不一刀切禁内网）。
 

@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { StrictMode } from 'react';
+import { StrictMode, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 
 import { router } from '@/routes';
 import { ApiError } from '@/api/client';
+import { authStore } from '@/lib/auth';
 import { applyTheme, getTheme } from '@/lib/theme';
 
 import '@/styles.css';
@@ -30,6 +31,26 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * 身份纪元驱动整树重挂载：queryClient.clear() 会移除已挂载 observer 的缓存
+ * 条目导致其“搁浅”（不再重取，页面永远停在加载态）。把纪元作为 React key
+ * 后，每次凭据/身份切换都会重建全部 useQuery 观察者，以新身份重新拉取。
+ */
+function useIdentityEpoch(): number {
+  return useSyncExternalStore(
+    authStore.subscribe,
+    () => authStore.getSnapshot().identityEpoch,
+    () => authStore.getSnapshot().identityEpoch,
+  );
+}
+
+/* 入口文件挂载 AppRoutes 属正常场景，fast-refresh 规则不适用。 */
+/* eslint-disable-next-line react-refresh/only-export-components */
+function AppRoutes() {
+  const epoch = useIdentityEpoch();
+  return <RouterProvider key={epoch} router={router} />;
+}
+
 /** dev 默认开 mock（VITE_USE_MOCK 缺省 true）；显式 "false" 或生产构建走真后端 */
 async function enableMocking(): Promise<void> {
   const flag = import.meta.env.VITE_USE_MOCK ?? (import.meta.env.DEV ? 'true' : 'false');
@@ -42,7 +63,7 @@ enableMocking().then(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <AppRoutes />
       </QueryClientProvider>
     </StrictMode>,
   );

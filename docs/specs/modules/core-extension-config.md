@@ -65,7 +65,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 | Model | `ToolDescriptor`（`tool.py:26`） | 工具注册描述：`key`/`name`/`description`/`args_schema`/`risk`/`contract`/`signature_hash` | — |
 | Model | `SkillMeta`（`skill.py:6`） | L1 元数据：`name`/`description`/`version`，扫描常驻注入 system prompt | — |
 | Model | `SkillPackage`（`skill.py:14`） | L1+L2 定位信息：`meta`/`path`/`scripts`/`references`/`assets`/`content_hash` | — |
-| Enum(str) | `ErrorCode`（`errors.py:7`） | 统一错误码（24 种，覆盖 Agent/Prompt/Model/Tool/Run/Auth/Config/Knowledge 各域；`KNOWLEDGE_SOURCE_NOT_FOUND` → 404 为知识库管理新增） | — |
+| Enum(str) | `ErrorCode`（`errors.py:7`） | 统一错误码（29 种，覆盖 Agent/Prompt/Model/Tool/Run/Auth/Config/Knowledge 各域；`KNOWLEDGE_SOURCE_NOT_FOUND` → 404 为知识库管理新增） | — |
 | Exception | `LubanError`（`errors.py:31`） | 框架统一异常：`code`/`message`/`details`/`retryable`，`to_dict()` 可整体序列化存储 | 构造时不校验，业务代码按需 raise |
 | Exception | `CapabilityMismatchError`/`BudgetExceededError`/`StepLimitExceededError`/`RunTimeoutError`/`RunCancelledError`/`ToolApprovalRequiredError`（`errors.py:62-90`） | `LubanError` 的语义化子类，各自固定对应 `ErrorCode` | 同 `LubanError` |
 | 函数 | `is_secret_key(key: str) -> bool`（`redact.py:68-74`） | 字段级秘密键判定：键名归一化（小写去符号，`normalized_key`，`redact.py:64-65`）后命中内置秘密键集合（`redact.py:17-41`，含 `apikey`/`authorization`/`token`/`password`/`secret`/`credential` 等）、部署者经 `register_secret_keys` 注册的额外键、或 `*apikey`/`*token`/`*password`/`*secret`/`*credential` 等后缀（`redact.py:43-51`）即真；与 H06 模型 `params` 校验同源 | 无 |
@@ -126,6 +126,8 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 | 函数(`@lru_cache`) | `get_settings() -> Settings`（`settings.py:71`） | 进程级单例配置入口，内部调用 `Settings.load()` | — |
 | 函数 | `configure_logging(level: str = "INFO", fmt: Literal["console","json"] = "console") -> None`（`logging.py:30`） | 配置 root logger；重复调用先清已有 handler 不叠加 | — |
 | Class(logging.Formatter) | `JsonFormatter`（`logging.py:12`） | 单行 JSON 日志格式，`LogRecord` 非标准属性并入 JSON | — |
+| Class(logging.Filter) | `CorrelationFilter`（`config/logging.py`） | 记录发出时从 `core.log_context` 复制可信关联字段；存在 `log_sink` 时同步交给 sink（默认 `DatabaseLogWriter.enqueue`） | 上下文缺失时关联字段缺省，不猜测 |
+| Class | `DatabaseLogWriter`（`observability/logging.py`） | 每应用独立的有界异步日志 sink：入队脱敏快照、批量写 `application_logs`、按保留期清理并暴露失败计数；每个应用持有独立实例避免并行 app 串库 | 队列满只累计 `dropped_count`；数据库写入失败累计 `write_failures`，不递归 logger、不阻断业务 |
 | 常量 | `DEFAULT_SQLITE_URL`（`defaults.py:3`） | `"sqlite+aiosqlite:///./lubanagent.db"` | — |
 | 常量 | `USER_EXTENSION_PACKAGES`（`defaults.py:6`） | `("app.tools", "app.graphs")`，约定优于配置的用户扩展扫描入口 | — |
 | 常量 | `FAKE_MODEL_KEY`（`defaults.py:8`） | `"fake-chat"`，零密钥兜底模型 key | — |
@@ -189,6 +191,12 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 | langsmith_api_key/langsmith_project | str \| None | `None` | `LANGSMITH_API_KEY`/`LANGSMITH_PROJECT` |
 | auth_enabled | bool | `True` | `AUTH_ENABLED` |
 | api_key | str \| None | `None` | `API_KEY` |
+| auth_database_enabled | bool | `False` | `AUTH_DATABASE_ENABLED`（开启后允许无 `API_KEY`，以数据库账号会话鉴权） |
+| auth_session_hours | int（1–168） | `8` | `AUTH_SESSION_HOURS` |
+| admin_bootstrap_password | str \| None | `None` | `LUBAN_ADMIN_PASSWORD`（显式 validation alias；长度 12–256，仅用于首次引导 admin，无默认密码） |
+| log_database_enabled | bool | `True` | `LOG_DATABASE_ENABLED` |
+| log_queue_capacity | int（100–100000） | `10000` | `LOG_QUEUE_CAPACITY` |
+| log_retention_days | int（1–3650） | `30` | `LOG_RETENTION_DAYS` |
 | rate_limit_per_minute | int | `600` | `RATE_LIMIT_PER_MINUTE` |
 | biz_base_url | str \| None | `None` | `BIZ_BASE_URL` |
 | embedding_model | str \| None | `None` | `EMBEDDING_MODEL` |
@@ -257,7 +265,7 @@ create_app()
 - **`discover()` 幂等，容错在调用方**：`discover()` 自身（`decorators.py:111-127`）已导入模块通过 `sys.modules` 判断跳过（`decorators.py:124-126`，该行是 `pkgutil.walk_packages` 子模块导入循环，非容错分支），重复调用不会重复注册；`discover()` 本身**不含** try/except，不捕获任何异常。容错处理在唯一调用方 `lubanagent/app/factory.py:44-50`：用 `try/except ModuleNotFoundError` 包裹每个包的 `discover()` 调用，扩展包本身不存在（`exc.name == package`）只记 warning 并继续，保证"空脚手架也能起"；但包内部导入失败（`exc.name != package`）会原样 `raise`，不会被吞掉。
 - **配置优先级铁律**：真实环境变量 > `.env.{env}` > `.env`（`settings.py:63-68` docstring 明确声明），`get_settings()` 用 `@lru_cache` 保证进程内单例，测试如需重新加载需显式清缓存：直接调用标准库 `lru_cache` 自带的 `get_settings.cache_clear()`（本模块未额外封装便捷方法，调用证据见 `tests/lubanagent/config/test_settings.py:111,115`，测试用例在断言前后各调一次以隔离缓存状态）。
 - **不存密钥本体**：`ModelDefinition.api_key_env` 只存环境变量名，不存密钥值本身（`model.py:22` docstring "模型定义: 模型注册键、能力清单与固定使用参数, 不存密钥本体"）。
-- **脱敏是字段级键名规则 + 凭证形态字符串识别，不做任意业务文本 PII 值级检测**：`redact_value` 只命中秘密键命名字段、含 userinfo/密钥 query 的 URL、含 `bearer ` 的字符串三类形态（`redact.py:88-103` 模块 docstring 明示策略边界）；异常 traceback 仅进日志，是否落盘由部署方日志策略管控，本组件不处理；`redact_value` 只读源数据返回新结构，执行路径必须用真实参数，绝不用副本执行（测试：`tests/lubanagent/core/test_redact.py`）。
+- **脱敏是字段级键名规则 + 凭证形态字符串识别，不做任意业务文本 PII 值级检测**：`redact_value` 只命中秘密键命名字段、含 userinfo/密钥 query 的 URL、含 `bearer ` 的字符串三类形态（`redact.py:88-103` 模块 docstring 明示策略边界）；异常 traceback 仅进日志，是否落盘由部署方日志策略管控，本组件不处理；`redact_value` 只读源数据返回新结构，执行路径必须用真实参数，绝不用副本执行（测试：`tests/lubanagent/core/test_redact.py`）。日志入库额外识别 bearer/sk-/password/token 等凭证文本，message/exception 截断到 32 KiB（UTF-8 字节，`observability/logging.py`），extras 序列化超过 16 KiB 时替换为 truncated 标记与 4 KiB 预览，但这仍不是任意 PII 识别保证。
 
 ## 名词
 

@@ -15,6 +15,10 @@ import {
   agents,
   approvals,
   brainMappings,
+  adminUser,
+  devUser,
+  diagnosticChildRun,
+  diagnosticLogs,
   evalReportDetails,
   evalReports,
   graphSummaries,
@@ -26,11 +30,19 @@ import {
   promptVersions,
   prompts,
   refundFlowDetail,
+  roles,
   runs,
   skills,
+  securityUsers,
+  permissions,
   tools,
   traces,
+  operatorUser,
+  viewerUser,
 } from './fixtures';
+
+import type { RoleOut, UserUpsert, UserPatch, RoleUpsert } from '@/api/access';
+import type { SessionUser } from '@/lib/auth';
 
 type AgentDefinition = components['schemas']['AgentDefinition'];
 type AgentVersion = components['schemas']['AgentVersion'];
@@ -128,6 +140,25 @@ function registerMockRun(runId: string, agentKey: string, input: string): void {
     },
     events,
   };
+}
+
+function paginate<T>(
+  items: T[],
+  request: Request,
+): { items: T[]; total: number; limit: number; offset: number } {
+  const url = new URL(request.url);
+  const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') ?? 20)));
+  const offset = Math.max(0, Number(url.searchParams.get('offset') ?? 0));
+  return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
+}
+
+function sessionFor(request: Request): SessionUser | null {
+  const token = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '');
+  if (token === 'session-admin') return adminUser;
+  if (token === 'session-operator') return operatorUser;
+  if (token === 'session-viewer') return viewerUser;
+  // 本地开发（AUTH_ENABLED=false）默认授出全部权限；前端不自行推断这个状态。
+  return devUser;
 }
 
 export const handlers = [
@@ -508,7 +539,8 @@ export const handlers = [
   http.get('*/v1/evals', () => HttpResponse.json(evalReports)),
   http.get('*/v1/evals/:resultId', ({ params }) => {
     const detail = evalReportDetails[Number(params.resultId)];
-    if (!detail) return errorOut(404, 'EVAL_RESULT_NOT_FOUND', `评测报告不存在: ${params.resultId}`);
+    if (!detail)
+      return errorOut(404, 'EVAL_RESULT_NOT_FOUND', `评测报告不存在: ${params.resultId}`);
     return HttpResponse.json(detail);
   }),
 
@@ -517,5 +549,194 @@ export const handlers = [
   http.get('*/v1/graphs/:name', ({ params }) => {
     if (params.name === 'refund_flow') return HttpResponse.json(refundFlowDetail);
     return errorOut(404, 'GRAPH_NOT_FOUND', `图未注册: ${params.name}`);
+  }),
+
+  // ---- Auth / Security（账号登录 + RBAC） ----
+  http.post('*/v1/auth/login', async ({ request }) => {
+    const body = (await request.json()) as { username?: string; password?: string };
+    const account =
+      body.username === 'alice' && body.password === 'admin123'
+        ? { user: adminUser, token: 'session-admin' }
+        : body.username === 'bob' && body.password === 'operator123'
+          ? { user: operatorUser, token: 'session-operator' }
+          : null;
+    if (!account) {
+      return errorOut(401, 'AUTH_FAILED', '用户名或密码错误');
+    }
+    return HttpResponse.json({
+      access_token: account.token,
+      token_type: 'bearer',
+      expires_at: '2026-07-23T11:00:00Z',
+      user: account.user,
+    });
+  }),
+
+  http.get('*/v1/auth/me', ({ request }) => {
+    const user = sessionFor(request);
+    if (!user) return errorOut(401, 'AUTH_REQUIRED', '未登录');
+    return HttpResponse.json(user);
+  }),
+
+  http.post('*/v1/auth/logout', () => HttpResponse.json({ logged_out: true })),
+
+  http.get('*/v1/security/users', () => HttpResponse.json(securityUsers)),
+
+  http.post('*/v1/security/users', async ({ request }) => {
+    const body = (await request.json()) as UserUpsert;
+    if (!body.username || securityUsers.some((user) => user.username === body.username)) {
+      return errorOut(409, 'VALIDATION_ERROR', `用户名必填或已存在: ${body.username ?? ''}`);
+    }
+    const now = new Date().toISOString();
+    const user = {
+      id: `u-${securityUsers.length + 1}`,
+      username: body.username,
+      display_name: body.display_name ?? body.username,
+      enabled: body.enabled ?? true,
+      role_keys: body.role_keys ?? [],
+      created_at: now,
+      updated_at: now,
+    };
+    securityUsers.push(user);
+    return HttpResponse.json(user, { status: 201 });
+  }),
+
+  http.patch('*/v1/security/users/:id', async ({ params, request }) => {
+    const user = securityUsers.find((item) => item.id === params.id);
+    if (!user) return errorOut(404, 'USER_NOT_FOUND', `用户不存在: ${params.id}`);
+    const patch = (await request.json()) as UserPatch;
+    if (patch.display_name !== undefined) user.display_name = patch.display_name;
+    if (patch.enabled !== undefined) user.enabled = patch.enabled;
+    if (patch.role_keys !== undefined) user.role_keys = patch.role_keys;
+    user.updated_at = new Date().toISOString();
+    return HttpResponse.json(user);
+  }),
+
+  http.get('*/v1/security/roles', () => HttpResponse.json(roles)),
+
+  http.get('*/v1/security/permissions', () => HttpResponse.json(permissions)),
+
+  http.post('*/v1/security/roles', async ({ request }) => {
+    const body = (await request.json()) as RoleUpsert;
+    if (!body.key || roles.some((role) => role.key === body.key)) {
+      return errorOut(409, 'VALIDATION_ERROR', `角色 key 必填或已存在: ${body.key ?? ''}`);
+    }
+    const role: RoleOut = {
+      key: body.key,
+      name: body.name || body.key,
+      permissions: body.permissions,
+    };
+    roles.push(role);
+    return HttpResponse.json(role, { status: 201 });
+  }),
+
+  http.patch('*/v1/security/roles/:key', async ({ params, request }) => {
+    const role = roles.find((item) => item.key === params.key);
+    if (!role) return errorOut(404, 'ROLE_NOT_FOUND', `角色不存在: ${params.key}`);
+    if (role.protected) return errorOut(409, 'PROTECTED_ROLE', 'admin 角色受保护');
+    const body = (await request.json()) as RoleUpsert;
+    role.name = body.name || role.name;
+    role.permissions = body.permissions;
+    return HttpResponse.json(role);
+  }),
+
+  http.delete('*/v1/security/roles/:key', ({ params }) => {
+    const index = roles.findIndex((role) => role.key === params.key);
+    if (index === -1) return errorOut(404, 'ROLE_NOT_FOUND', `角色不存在: ${params.key}`);
+    if (roles[index].protected) return errorOut(409, 'PROTECTED_ROLE', 'admin 角色受保护');
+    roles.splice(index, 1);
+    return HttpResponse.json({ deleted: true });
+  }),
+
+  // ---- 统一日志查询 ----
+  http.get('*/v1/logs', ({ request }) => {
+    const url = new URL(request.url);
+    // 对齐真实后端约束：limit 上限 200（Query le=200），超限返回 422。
+    if (Number(url.searchParams.get('limit') ?? 20) > 200) {
+      return HttpResponse.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: '请求参数校验失败',
+            details: {
+              errors: [{ loc: ['query', 'limit'], type: 'less_than_equal', msg: '≤200' }],
+            },
+          },
+        },
+        { status: 422 },
+      );
+    }
+    const equals = (
+      value: string | null | undefined,
+      expected: string | null | undefined,
+    ): boolean => value === undefined || value === null || value === '' || expected === value;
+    const keyword = url.searchParams.get('q')?.toLowerCase() ?? '';
+    const filtered = diagnosticLogs.filter((log) => {
+      const createdAt = new Date(log.created_at).getTime();
+      const from = url.searchParams.get('from_time');
+      const to = url.searchParams.get('to_time');
+      return (
+        equals(url.searchParams.get('session_id'), log.session_id) &&
+        equals(url.searchParams.get('run_id'), log.run_id) &&
+        equals(url.searchParams.get('root_run_id'), log.root_run_id) &&
+        equals(url.searchParams.get('trace_id'), log.trace_id) &&
+        equals(url.searchParams.get('request_id'), log.request_id) &&
+        equals(url.searchParams.get('subject'), log.subject) &&
+        equals(url.searchParams.get('level'), log.level) &&
+        equals(url.searchParams.get('logger'), log.logger) &&
+        (!from || createdAt >= new Date(from).getTime()) &&
+        (!to || createdAt <= new Date(to).getTime()) &&
+        (keyword === '' ||
+          `${log.message} ${log.exception ?? ''} ${log.logger}`.toLowerCase().includes(keyword))
+      );
+    });
+    return HttpResponse.json({
+      ...paginate(filtered, request),
+      dropped_count: 3,
+      write_failures: 0,
+    });
+  }),
+
+  http.get('*/v1/diagnostics/runs', ({ request }) => {
+    const url = new URL(request.url);
+    const equals = (
+      value: string | null | undefined,
+      expected: string | null | undefined,
+    ): boolean => value === undefined || value === null || expected === value;
+    const filtered = [...runs, diagnosticChildRun].filter((run) => {
+      const status = url.searchParams.get('status');
+      return (
+        equals(url.searchParams.get('session_id'), run.session_id) &&
+        equals(url.searchParams.get('run_id'), run.id) &&
+        equals(url.searchParams.get('trace_id'), traces[run.id]?.trace.id ?? null) &&
+        equals(url.searchParams.get('user_id'), run.user_id) &&
+        (status === null || status === '' || run.status === status)
+      );
+    });
+    return HttpResponse.json(paginate(filtered, request));
+  }),
+
+  http.get('*/v1/diagnostics/runs/:identifier', ({ params }) => {
+    const identifier = params.identifier as string;
+    const primary =
+      [...runs, diagnosticChildRun].find((run) => run.id === identifier) ??
+      (traces[identifier]
+        ? ([...runs, diagnosticChildRun].find((run) => traces[run.id]?.trace.id === identifier) ??
+          null)
+        : null);
+    if (!primary) return errorOut(404, 'RUN_NOT_FOUND', `排查对象不存在: ${identifier}`);
+    const rootId = primary.parent_run_id ?? primary.id;
+    const treeRuns = [...runs, diagnosticChildRun].filter(
+      (run) => run.id === rootId || run.parent_run_id === rootId,
+    );
+    const treeTraces = treeRuns
+      .map((run) => traces[run.id])
+      .filter((trace): trace is NonNullable<typeof trace> => trace !== undefined);
+    const logCount = diagnosticLogs.filter((log) => log.root_run_id === rootId).length;
+    return HttpResponse.json({
+      run: primary,
+      runs: treeRuns,
+      traces: treeTraces,
+      log_count: logCount,
+    });
   }),
 ];

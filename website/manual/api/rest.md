@@ -5,7 +5,8 @@
 ## 基本约定
 
 - **Base URL**：`http://localhost:8000/v1`（本地默认端口；Docker 全栈同为 8000）
-- **鉴权**：请求头 `Authorization: Bearer <key>`。`AUTH_ENABLED=false`（开发默认）时免鉴权走 anonymous；开启后所有 `/v1/*` 请求必须携带与 `API_KEY` 一致的 Bearer token，缺失或不匹配返回 401 `AUTH_FAILED`。开启鉴权却未配置 `API_KEY` 且无自定义 AuthProvider 时，服务启动期直接拒绝启动（fail fast）。详见[运行时与治理](../features/runtime.md)。
+- **鉴权**：请求头 `Authorization: Bearer <token-or-key>`。数据库账号登录返回的 bearer token 和配置的 `API_KEY` 都可使用；Master API Key 始终映射为 bootstrap admin。`AUTH_ENABLED=false` 是显式开发模式，走 anonymous 并拥有全部权限；生产必须保持 `true`。`POST /v1/auth/login` 免鉴权；其余 `/v1/*` 都要先通过身份与权限裁决。开启鉴权但无 `API_KEY`、无自定义 AuthProvider 且 `AUTH_DATABASE_ENABLED=false` 时，服务启动期直接拒绝启动。详见[登录与用户权限](../features/workbench.md)。
+- **请求排查**：每个 HTTP 响应带 `X-Request-ID`；请求错误也返回该 ID，可用于 `GET /v1/logs?request_id=...`。不要把它当成 Run 的持久化字段。
 - **Content-Type**：JSON 接口为 `application/json`；文件上传（头像、知识文档、Skill 包）为 `multipart/form-data`
 - **限流**：每主体每分钟默认 600 次（`RATE_LIMIT_PER_MINUTE`），超限返回 429 `RATE_LIMITED`
 - **健康检查**：`GET /health`（不带 `/v1` 前缀，免鉴权），返回 `{"status": "ok"}`
@@ -156,3 +157,42 @@ curl -X POST http://localhost:8000/v1/approvals/ap-123/decide \
 | GET | `/v1/graphs/{name}` | 图拓扑结构详情（entry/nodes/edges/cond_edges） | — | `GraphDetailOut`；未注册 → 404 `GRAPH_NOT_FOUND`；非 DSL 构建器 → 422 `GRAPH_STRUCTURE_UNAVAILABLE` |
 
 评测流程与报告解读见 [评测](../features/evals.md)；图的定义方式见 [运行时与治理](../features/runtime.md)。
+
+## 登录与用户权限（auth / security）
+
+| 方法 | 路径 | 说明 | 关键请求字段 | 关键响应字段 |
+|---|---|---|---|---|
+| POST | `/v1/auth/login` | 用户名密码登录；按来源主机限流 | `username`（1–64）、`password`（12–256） | `access_token`、`token_type:"bearer"`、`expires_at`、`user`；失败统一返回 401 语义，不区分“用户不存在”和“密码错误” |
+| GET | `/v1/auth/me` | 当前账号、角色、权限与鉴权模式 | — | `subject/username/display_name/roles/permissions/auth_enabled/is_bootstrap` |
+| POST | `/v1/auth/logout` | 撤销当前数据库会话 | — | `{logged_out:true}` |
+| GET/POST | `/v1/security/users` | 用户列表/创建；需 `security:manage` | 创建：`username/display_name/password/role_keys/enabled`；密码 12–256 位 | `UserPublic[]` 或 `UserPublic`（200）；绝不返回 `password_hash` |
+| PATCH | `/v1/security/users/{id}` | 改显示名、启用状态、角色或密码；需 `security:manage` | 可选 `display_name/enabled/role_keys/password` | `UserPublic`；禁用或改密会撤销该用户既有会话 |
+| GET/POST | `/v1/security/roles` | 角色列表/创建；需 `security:manage` | `key/name/permissions` | `RolePublic[]` 或 `RolePublic`（200） |
+| PATCH/DELETE | `/v1/security/roles/{key}` | 改权限或删除角色；需 `security:manage` | `name/permissions` | `RolePublic` 或 `{deleted:true}`；admin 受保护且必须拥有全部权限，仅 admin 不可删除（operator/auditor/viewer 可改可删），不能移除最后一个启用 admin |
+| GET | `/v1/security/permissions` | 权限清单；需 `security:manage` | — | `[{key,name}]`，当前 10 项 |
+
+```bash
+curl -X POST http://localhost:8000/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-admin-password"}'
+```
+
+**权限映射**：`/v1/auth/*` 只要求已认证；`/v1/security/*` 要求 `security:manage`；`/v1/logs` 和 `/v1/diagnostics/*` 要求 `diagnostics:read`。GET runs/traces/approvals 要求 `run:read`，创建/续跑/工具测试/检索测试要求 `run:execute`，取消要求 `run:cancel`，审批决定要求 `run:approve`，评测读取与执行分别要求 `eval:read` / `eval:execute`；其他读取要求 `config:read`，未知写路径默认要求 `config:write`。权限不足返回 403 `PERMISSION_DENIED`。
+
+**边界**：角色和权限服务于 LubanAgent 平台自身，不是通用企业后台；没有部门、租户或行级数据范围。每次请求从数据库重载启用用户和当前角色授权，禁用、改密、改角色或退出立即影响后续请求。
+
+## 平台日志与诊断（logs / diagnostics）
+
+| 方法 | 路径 | 说明 | 关键查询/请求字段 | 关键响应字段 |
+|---|---|---|---|---|
+| GET | `/v1/logs` | 查询已入库程序日志 | `session_id/run_id/trace_id/request_id/root_run_id/level/logger/q/from_time/to_time/limit/offset`；`limit` 默认 50、≤200 | `{items,total,limit,offset,dropped_count,write_failures}`；日志字段含关联 ID、`subject`、`exception`、`pathname`、`lineno`、`extra` |
+| GET | `/v1/diagnostics/runs` | 分页诊断 Run | `session_id/run_id/trace_id/user_id/status/limit/offset`；`limit` 默认 50、≤200 | `{items:Run[],total,limit,offset}`；输入输出展示前脱敏 |
+| GET | `/v1/diagnostics/runs/{run_or_trace_id}` | 按 Run ID 或 Trace ID 返回执行树 | — | `{run,runs,traces,log_count}`；`runs` 为根 Run 与全部后代，Trace 事件随每个 Run 返回 |
+
+```bash
+# 用登录返回的 token 查一次请求的日志；默认最多返回 50 条
+curl "http://localhost:8000/v1/logs?request_id=<x-request-id>&limit=50" \
+  -H "Authorization: Bearer <access_token>"
+```
+
+**边界**：写入是有界异步批次；查询前会尽量刷新队列，但队列满、数据库写入失败或进程崩溃仍可能丢日志。凭证类文本在入库前尽力脱敏，但不是任意 PII 识别；`logging` 集成不自动捕获所有 `print` 或第三方日志。`request_id` 仅是日志关联键，不写入 `runs` 表。

@@ -1,27 +1,92 @@
 """治理同权（行为契约 3/4）：整条预算熔断（共享 guard）与取消传播（复验 D3-4 机制）。"""
 
+import logging
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from sqlalchemy import select
 
+from lubanagent.config import configure_logging
 from lubanagent.core import (
     BrainProfile,
     Budget,
     BudgetExceededError,
     EndReason,
+    Run,
     RunCancelledError,
     RunContext,
     RunStatus,
     TraceEventType,
 )
+from lubanagent.core.log_context import log_context
 from lubanagent.model import ScriptedFakeChatModel
 from lubanagent.observability.cost import build_run_tree_cost_report
+from lubanagent.observability.logging import DatabaseLogWriter
 from lubanagent.persistence import Database, RunRepository, TraceRepository
 from lubanagent.persistence.models import TokenUsageRow
+from lubanagent.persistence.repositories.log import ApplicationLogRepository
 from lubanagent.runtime import BudgetGuard, CancellationToken
 
 from .conftest import seed_triage_team
+
+
+async def test_team_supervisor_and_parallel_members_share_root_log_context(make_team_runner, db):
+    configure_logging()
+    writer = DatabaseLogWriter(db)
+    team = await seed_triage_team(
+        db,
+        triage_script=[
+            '{"action":"delegate","agents":["faq","refund"],"input":"question"}',
+            '{"action":"answer","answer":"final answer"}',
+        ],
+        faq_script=["FAQ answer"],
+        refund_script=["refund answer"],
+        fanout=True,
+    )
+    async with db.session() as session:
+        await RunRepository(session).create_run(
+            Run(
+                id="team-parent",
+                agent_key="triage",
+                agent_version=1,
+                session_id="team-conversation",
+                status=RunStatus.COMPLETED,
+                brain_profile=BrainProfile.SMART,
+                created_at=datetime.now(UTC),
+            )
+        )
+    parent_ctx = RunContext(
+        run_id="team-parent",
+        agent_key="triage",
+        agent_version=1,
+        session_id="team-conversation",
+        brain_profile=BrainProfile.SMART,
+    )
+    with log_context(
+        log_sink=writer.enqueue,
+        request_id="team-request",
+        session_id="team-conversation",
+        subject="user:operator",
+    ):
+        result = await make_team_runner().run(team, "question", parent_ctx=parent_ctx)
+        logging.getLogger("app.team.complete").info("team answered")
+    assert result.status == "completed"
+    await writer.flush()
+    async with db.session() as session:
+        logs, _ = await ApplicationLogRepository(session).list_logs(root_run_id="team-parent")
+        tree = await RunRepository(session).run_tree(result.run_id)
+    starts = [item for item in logs if item["message"] == "Agent run started"]
+    assert len(starts) == 4  # two supervisor decisions and two parallel members
+    assert {item["run_id"] for item in starts} == {
+        run.id for run in tree if run.id not in {"team-parent", result.run_id}
+    }
+    assert {item["parent_run_id"] for item in starts} == {result.run_id}
+    assert {item["session_id"] for item in starts} == {"team-conversation"}
+    assert {item["request_id"] for item in starts} == {"team-request"}
+    assert {item["subject"] for item in starts} == {"user:operator"}
+    assert all(item["trace_id"] == f"trace-{item['run_id']}" for item in starts)
+    await writer.close()
 
 
 def _parent_ctx(**kwargs: Any) -> RunContext:
@@ -34,9 +99,7 @@ def _parent_ctx(**kwargs: Any) -> RunContext:
     )
 
 
-async def test_shared_guard_budget_exceeded(
-    make_team_runner, db: Database, sequential_models
-):
+async def test_shared_guard_budget_exceeded(make_team_runner, db: Database, sequential_models):
     """共享 guard（max_tokens 极小）→ supervisor decide 消费撞线 → 编排 Run BUDGET_EXCEEDED。"""
     team = await seed_triage_team(
         db,
@@ -218,8 +281,11 @@ async def test_fanout_parallel_children_share_pool_atomically(
         faq_script=["faq 答"],
         refund_script=["refund 答"],
         fanout=True,
-        pricing={"fake-smart": (0.001, 0.001), "fake-fast": (0.003, 0.001),
-                 "fake-cheap": (0.0005, 0.0005)},
+        pricing={
+            "fake-smart": (0.001, 0.001),
+            "fake-fast": (0.003, 0.001),
+            "fake-cheap": (0.0005, 0.0005),
+        },
     )
     sequential_models.set_usage("fake-smart", (10, 10))
     sequential_models.set_usage("fake-fast", (30, 10))

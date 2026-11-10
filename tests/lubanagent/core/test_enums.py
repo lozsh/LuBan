@@ -15,7 +15,7 @@ def test_brain_profile_values() -> None:
     assert [p.value for p in BrainProfile] == ["fast", "smart", "cheap", "vision"]
 
 
-def test_error_code_all_28() -> None:
+def test_error_code_all_29() -> None:
     expected = [
         "AGENT_NOT_FOUND",
         "AGENT_VERSION_NOT_FOUND",
@@ -34,6 +34,7 @@ def test_error_code_all_28() -> None:
         "RUN_TIMEOUT",
         "RUN_CANCELLED",
         "AUTH_FAILED",
+        "PERMISSION_DENIED",
         "RATE_LIMITED",
         "VALIDATION_ERROR",
         "CONFIG_ERROR",

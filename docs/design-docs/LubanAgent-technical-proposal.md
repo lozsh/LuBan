@@ -25,7 +25,7 @@ flowchart TB
 
 | 图里的框 | 大白话 | 技术对应（给工程师） |
 | --- | --- | --- |
-| 统一大门 | 所有请求从一个入口进出，有门禁 | FastAPI · REST/SSE · API Key 鉴权；MCP Server 暴露 |
+| 统一大门 | 所有请求从一个入口进出，有门禁 | FastAPI · REST/SSE · API Key / 数据库会话 / 可插拔鉴权与平台 RBAC；MCP Server 暴露 |
 | 档案室 | 每个 Agent 的"人事档案"：人设、本事、规矩；改档案就是改 Agent，不用改代码发版 | MySQL 8 / SQLite；定义、模型注册、Skill、测试集、Trace 全部入库版本化 |
 | 灵活接待员 | 日常对话随机应变，自己决定用哪个工具 | LangGraph prebuilt agent + 治理包装（步数/预算/超时/Trace） |
 | 标准流水线 | 必须按固定步骤走的流程，一步不能跳 | LangGraph 编排，检查点、人工节点 |
@@ -41,7 +41,7 @@ flowchart TB
 | 模型接入 | OpenAI 兼容协议 | DeepSeek/Qwen/GLM/vLLM/Ollama 一套客户端全覆盖；连接信息存库、固定标识切换 |
 | 工具生态 | MCP（官方 Python SDK） | Client 接生态；自有 Tool 反向暴露为 MCP Server |
 | 能力包 | Agent Skills 开放标准（SKILL.md） | 渐进加载，入库版本化，不做公共市场 |
-| 接入层 | FastAPI + SSE | API Key 可插拔鉴权 |
+| 接入层 | FastAPI + SSE | API Key / 数据库会话 / 可插拔鉴权；后端 RBAC 逐请求裁决 |
 | 存储 | MySQL 8.0+ / SQLite（开发期免安装） | 定义、版本、Trace、评测、LangGraph checkpoint 统一落库 |
 | 知识检索 | 最小 RAG（向量库可选）+ 防错答守门（相关度阈值/知识时效/全 miss 拒答短路） | 简单 Agent 默认不启用；守门由代码强制（`score_threshold`/`no_hit_fallback`/`max_age_days`），拒答可用评测 `expect_refusal` 硬指标回归 |
 | 部署 | Docker Compose | 克隆即跑 |
@@ -52,7 +52,7 @@ flowchart TB
 
 ## 1. 背景
 
-企业后台项目的重复建设问题早已被各类成熟脚手架解决：用户、权限、配置、日志、监控、代码组织和基础页面不必从零开始。
+与 Agent 无关的通用企业后台重复建设问题由业务系统或成熟后台产品解决；LubanAgent 只保留运行自身工作台所需的登录、角色、权限与审计会话，不做组织架构、租户、部门或行级授权。
 
 Agent 领域还没有这样的基础工程，每个项目都在重复解决同一批问题：
 
@@ -170,13 +170,13 @@ LubanAgent 不是：
 
 工程只提供 Agent 运行所必需的最小基座，不内置与 Agent 无关的通用后台能力：
 
-- 调用入口鉴权：REST / SSE 接口的 API Key 校验，供业务系统安全调用；
+- 调用入口鉴权：REST / SSE 接口的 API Key、数据库账号会话或自定义 AuthProvider 校验，供业务系统安全调用；
 - 调用方治理：按 API Key 维度的速率限制与配额扩展点（`RateLimiter` Protocol，默认内存实现，可换 Redis），多业务系统共用一个核心时不裸奔；
 - 环境化配置：开发、测试、生产环境隔离，支撑模型与参数的按环境映射；
 - 运行持久化：会话、Run、Trace 和 Agent 版本的存储；
 - Docker 化部署：一键打包，可选依赖（向量库、MCP Server）按需编排。
 
-明确不内置用户、角色、权限等通用后台管理能力。Agent 运行在开发者的业务系统中，账号体系由业务系统自己解决；LubanAgent 保证接口可被安全调用即可。
+平台级 RBAC 只服务于 LubanAgent 工作台和 `/v1` API：内置 10 个权限、4 个默认角色、数据库登录会话与逐请求授权。它不提供企业组织架构、多租户、部门数据范围或业务行权限；业务侧账号体系仍可按网关或自有系统治理。
 
 ### 5.2 Agent 定义
 
@@ -283,7 +283,7 @@ flowchart TB
     end
 
     subgraph ACCESS["接入层 lubanagent-app"]
-        API["REST / SSE<br/>API Key 鉴权（可插拔）"]
+        API["REST / SSE<br/>API Key / DB 会话 / 可插拔鉴权"]
         MCPSRV["MCP Server 反向暴露"]
     end
 
@@ -362,7 +362,7 @@ flowchart TB
 
 整体分为五层加一条横切，外加一个可拆卸的渠道层：
 
-1. **接入层**：REST / SSE 调用入口（API Key 可插拔鉴权）；MCP Server 反向暴露端点；
+1. **接入层**：REST / SSE 调用入口（API Key、数据库会话、可插拔鉴权与平台 RBAC）；MCP Server 反向暴露端点；
 2. **定义层（数据库）**：Agent 定义、模型注册与大脑映射、Skill 库、MCP 登记、测试集，全部入库、版本化、运行期可维护——运营期可变的不在代码里；
 3. **执行层（LangGraph 一种引擎 · 两种用法）**：普通 Agent = LangGraph prebuilt agent 外套治理包装（步数/预算/超时/取消/Trace）；确定性流程 = 手写 LangGraph 图（流水线/检查点/人工节点）；编排 Run 作为子 Run 挂入会话 Run；
 4. **能力层**：LangChain 对象一份能力件——模型工厂（OpenAI 兼容）、Python Tool、MCP Client、Skill 运行时、RAG、Memory，两种用法复用同一份；

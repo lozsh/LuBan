@@ -6,14 +6,30 @@ import {
   authHeaders,
   authStore,
   clearApiKey,
+  clearAllCredentials,
   isUnauthorizedStatus,
   markUnauthorized,
   setApiKey,
+  setSession,
 } from './auth';
+import type { SessionUser } from './auth';
 
 afterEach(() => {
   clearApiKey();
+  clearAllCredentials();
 });
+
+const sessionUser: SessionUser = {
+  subject: 'user:1',
+  id: '1',
+  username: 'alice',
+  display_name: 'Alice',
+  role_keys: ['admin'],
+  roles: ['admin'],
+  permissions: ['*'],
+  auth_enabled: true,
+  is_bootstrap: true,
+};
 
 describe('auth store', () => {
   it('默认无 Key：authHeaders 为空对象', () => {
@@ -44,6 +60,16 @@ describe('auth store', () => {
     expect(listener).toHaveBeenCalledTimes(3); // 退订后不再通知
   });
 
+  it('clearApiKey 立即通知所有订阅者', () => {
+    const listener = vi.fn();
+    const unsubscribe = authStore.subscribe(listener);
+    setApiKey('k');
+    clearApiKey();
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(authStore.getSnapshot().apiKey).toBeNull();
+    unsubscribe();
+  });
+
   it('markUnauthorized 幂等：重复 401 不重复通知', () => {
     const listener = vi.fn();
     authStore.subscribe(listener);
@@ -66,5 +92,18 @@ describe('auth store', () => {
     expect(isUnauthorizedStatus(401)).toBe(true);
     expect(isUnauthorizedStatus(403)).toBe(false);
     expect(isUnauthorizedStatus(null)).toBe(false);
+  });
+
+  it('账号登录和 API Key 互相替换，切换身份不残留另一凭据', () => {
+    setApiKey('sk-old');
+    setSession('token-1', sessionUser);
+    expect(authHeaders()).toEqual({ Authorization: 'Bearer token-1' });
+    expect(authStore.getSnapshot().apiKey).toBeNull();
+    expect(authStore.getSnapshot().currentUser?.username).toBe('alice');
+
+    setApiKey('sk-new');
+    expect(authHeaders()).toEqual({ Authorization: 'Bearer sk-new' });
+    expect(authStore.getSnapshot().sessionToken).toBeNull();
+    expect(authStore.getSnapshot().currentUser).toBeNull();
   });
 });

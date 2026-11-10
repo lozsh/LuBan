@@ -20,6 +20,8 @@ function renderAt(path: string) {
 describe('布局壳', () => {
   it('左侧导航 + 顶栏渲染（mock 数据经 MSW 注入）', async () => {
     renderAt('/agents');
+    // 权限读取完成前菜单默认隐藏，避免越权入口闪现。
+    await screen.findByText('Agents');
     for (const label of [
       'Agents',
       '调试台',
@@ -31,7 +33,9 @@ describe('布局壳', () => {
       '知识库',
       '流程图',
       'Traces',
+      '日志排查',
       '评测',
+      '用户权限',
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
@@ -46,7 +50,7 @@ describe('布局壳', () => {
   });
 });
 
-describe('14 条页面路由均可达', () => {
+describe('17 条页面路由均可达', () => {
   const cases: Array<[string, string]> = [
     ['/agents', 'Agent 列表'],
     ['/agents/cs-agent', 'Agent 定义编辑器 — cs-agent'],
@@ -62,6 +66,9 @@ describe('14 条页面路由均可达', () => {
     ['/traces', 'Trace 列表'],
     ['/traces/run-0001', 'Trace 回放'],
     ['/evals', '评测报告'],
+    ['/diagnostics', '日志排查'],
+    ['/diagnostics/run-0001', '对话排查详情'],
+    ['/security', '用户与角色'],
   ];
 
   it.each(cases)('%s → %s', async (path, title) => {

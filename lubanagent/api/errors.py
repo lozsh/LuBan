@@ -25,6 +25,7 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.AVATAR_NOT_FOUND: 404,
     ErrorCode.EVAL_RESULT_NOT_FOUND: 404,
     ErrorCode.AUTH_FAILED: 401,
+    ErrorCode.PERMISSION_DENIED: 403,
     ErrorCode.RATE_LIMITED: 429,
     ErrorCode.TOOL_PERMISSION_DENIED: 403,
     ErrorCode.AGENT_VERSION_UNRUNNABLE: 422,
@@ -48,17 +49,16 @@ def register_error_handlers(app: FastAPI) -> None:
     """注册顺序：RequestValidationError → LubanError → Exception。"""
 
     @app.exception_handler(RequestValidationError)
-    async def _on_validation_error(
-        request: Request, exc: RequestValidationError
-    ) -> JSONResponse:
+    async def _on_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         body = ErrorOut.of(
             ErrorCode.VALIDATION_ERROR.value,
             "请求参数校验失败",
             details={
+                "request_id": getattr(request.state, "request_id", None),
                 "errors": [
                     {"loc": list(error["loc"]), "type": error["type"], "msg": error["msg"]}
                     for error in exc.errors()
-                ]
+                ],
             },
         )
         return JSONResponse(status_code=422, content=body.model_dump(mode="json"))
@@ -66,11 +66,24 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(LubanError)
     async def _on_luban_error(request: Request, exc: LubanError) -> JSONResponse:
         status = ERROR_HTTP_STATUS.get(exc.code, 500)
-        return JSONResponse(status_code=status, content=exc.to_dict())
+        content = exc.to_dict()
+        request_id = getattr(request.state, "request_id", None)
+        if request_id:
+            content["error"]["details"] = {**content["error"]["details"], "request_id": request_id}
+        return JSONResponse(status_code=status, content=content)
 
     @app.exception_handler(Exception)
     async def _on_unexpected(request: Request, exc: Exception) -> JSONResponse:
         # 堆栈只进日志，不进响应
         logger.exception("未捕获异常: %s %s", request.method, request.url.path)
-        body = ErrorOut.of(ErrorCode.INTERNAL_ERROR.value, "服务器内部错误")
-        return JSONResponse(status_code=500, content=body.model_dump(mode="json"))
+        request_id = getattr(request.state, "request_id", None)
+        body = ErrorOut.of(
+            ErrorCode.INTERNAL_ERROR.value,
+            "服务器内部错误",
+            details={"request_id": request_id} if request_id else None,
+        )
+        return JSONResponse(
+            status_code=500,
+            content=body.model_dump(mode="json"),
+            headers={"X-Request-ID": request_id} if request_id else None,
+        )

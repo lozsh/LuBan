@@ -14,12 +14,12 @@ router = APIRouter(tags=["traces"])
 async def get_trace(run_id: str, ctx: CtxDep) -> TraceOut:
     async with ctx.db.session() as session:
         repo = TraceRepository(session)
-        trace = await repo.get_trace_by_run(run_id)
+        trace = await repo.get_trace(run_id)
         if trace is None:
             raise LubanError(
                 ErrorCode.RUN_NOT_FOUND,
                 f"Trace 不存在: run {run_id}",
                 details={"run_id": run_id},
             )
-        events = await repo.list_events(run_id)
+        events = await repo.list_events(trace.run_id)
     return TraceOut(trace=trace, events=events)

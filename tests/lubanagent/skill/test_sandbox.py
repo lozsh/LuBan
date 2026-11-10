@@ -384,7 +384,7 @@ as_supported = pytest.mark.skipif(
 
 @posix_only
 async def test_run_script_cpu_limit_kills_spinloop(tmp_path: Path) -> None:
-    """CPU 限额: 死循环脚本被 RLIMIT_CPU (SIGXCPU) 杀, 而非靠外层超时。"""
+    """CPU 限额: 超 soft 收 SIGXCPU；soft=hard 时 Linux 可直接 SIGKILL。"""
     write_skill(tmp_path, "demo", scripts={"spin.py": "while True:\n    pass\n"})
     package = scan_skills_dir(tmp_path)[0]
 
@@ -396,7 +396,8 @@ async def test_run_script_cpu_limit_kills_spinloop(tmp_path: Path) -> None:
     )
     assert result.timed_out is False
     assert result.exit_code != 0
-    assert result.exit_code == -signal.SIGXCPU
+    assert result.exit_code in {-signal.SIGXCPU, -signal.SIGKILL}
+    assert result.duration_ms < 10000  # 不得等到 20 秒外层超时才终止
 
 
 @as_supported

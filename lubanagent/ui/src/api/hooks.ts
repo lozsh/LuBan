@@ -11,7 +11,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 
-import { authedFetch, client, toApiError, type ApiError } from './client';
+import { ApiError, authedFetch, client, toApiError } from './client';
 import type { components } from './schema';
 
 export type AgentDefinition = components['schemas']['AgentDefinition'];
@@ -141,7 +141,7 @@ export function useUploadAvatar(): UseMutationResult<
       );
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw toApiError(
+        throw new ApiError(
           body?.error ?? { message: `上传失败: ${response.status}` },
           response.status,
         );
@@ -277,7 +277,7 @@ export function useUploadSkill(): UseMutationResult<SkillOut, ApiError, File> {
       });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw toApiError(
+        throw new ApiError(
           body?.error ?? { message: `上传失败: ${response.status}` },
           response.status,
         );
@@ -293,13 +293,12 @@ export function useDeleteSkill(): UseMutationResult<void, ApiError, string> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (key) => {
-      const response = await authedFetch(
-        `${clientBase()}/v1/skills/${encodeURIComponent(key)}`,
-        { method: 'DELETE' },
-      );
+      const response = await authedFetch(`${clientBase()}/v1/skills/${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+      });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw toApiError(
+        throw new ApiError(
           body?.error ?? { message: `删除失败: ${response.status}` },
           response.status,
         );
@@ -340,7 +339,7 @@ export function useAssignSkillToAgents(): UseMutationResult<void, ApiError, Assi
           );
           if (!response.ok) {
             const body = await response.json().catch(() => null);
-            throw toApiError(
+            throw new ApiError(
               body?.error ?? { message: `分配失败 ${a.key}: ${response.status}` },
               response.status,
             );
@@ -440,7 +439,7 @@ export function useAssignPromptToAgents(): UseMutationResult<void, ApiError, Ass
           );
           if (!response.ok) {
             const body = await response.json().catch(() => null);
-            throw toApiError(
+            throw new ApiError(
               body?.error ?? { message: `分配失败 ${a.key}: ${response.status}` },
               response.status,
             );
@@ -551,7 +550,7 @@ export function useUploadKnowledgeSource(): UseMutationResult<
       });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw toApiError(
+        throw new ApiError(
           body?.error ?? { message: `上传失败: ${response.status}` },
           response.status,
         );
@@ -573,7 +572,7 @@ export function useDeleteKnowledgeSource(): UseMutationResult<void, ApiError, st
       );
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw toApiError(
+        throw new ApiError(
           body?.error ?? { message: `删除失败: ${response.status}` },
           response.status,
         );

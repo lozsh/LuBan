@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,12 +10,15 @@ from lubanagent.core import (
     AgentDefinition,
     BrainProfile,
     EndReason,
+    ErrorCode,
+    LubanError,
     Run,
     RunStatus,
     TokenUsage,
+    Trace,
 )
 from lubanagent.persistence.models import AgentVersionRow, CostRecordRow, RunRow, TokenUsageRow
-from lubanagent.persistence.repositories import AgentRepository, RunRepository
+from lubanagent.persistence.repositories import AgentRepository, RunRepository, TraceRepository
 
 
 def make_run(run_id: str, agent_key: str = "demo", **overrides) -> Run:
@@ -106,6 +110,56 @@ async def test_list_runs_filters(session: AsyncSession) -> None:
     assert len(await repo.list_runs(limit=2)) == 2
 
 
+async def test_diagnostic_tree_uses_parent_links_not_session_or_list_limit(session):
+    await seed_agent(session)
+    repo = RunRepository(session)
+    await repo.create_run(make_run("root", session_id="same-session"))
+    await repo.create_run(make_run("other-round", session_id="same-session"))
+    for index in range(502):
+        await repo.create_run(make_run(f"child-{index}", session_id="thread", parent_run_id="root"))
+    await repo.create_run(
+        make_run(
+            "grandchild",
+            session_id="thread-2",
+            parent_run_id="child-500",
+            created_at=datetime(2020, 1, 1),
+        )
+    )
+    assert (await repo.root_run("grandchild")).id == "root"
+    tree = await repo.run_tree("grandchild")
+    assert tree[0].id == "root"
+    assert len(tree) == 504
+    assert "other-round" not in {run.id for run in tree}
+    assert await repo.run_tree("missing") == []
+    trace_repo = TraceRepository(session)
+    await trace_repo.create_trace(
+        Trace(
+            id="actual-trace-id",
+            run_id="root",
+            status=RunStatus.COMPLETED,
+            started_at=datetime(2026, 1, 1),
+        )
+    )
+    items, total = await repo.diagnostic_page(trace_id="actual-trace-id", limit=1)
+    assert total == 1 and items[0].id == "root"
+    items, total = await repo.diagnostic_page(session_id="same-session", limit=1, offset=1)
+    assert total == 2 and len(items) == 1
+    items, total = await repo.diagnostic_page(status=RunStatus.FAILED.value)
+    assert items == [] and total == 0
+
+
+async def test_diagnostic_parent_cycles_rejected_but_missing_parent_is_root(session):
+    await seed_agent(session)
+    repo = RunRepository(session)
+    await repo.create_run(make_run("a", parent_run_id="b"))
+    await repo.create_run(make_run("b", parent_run_id="a"))
+    with pytest.raises(LubanError) as caught:
+        await repo.root_run("a")
+    assert caught.value.code == ErrorCode.VALIDATION_ERROR
+    await repo.create_run(make_run("orphan", parent_run_id="missing"))
+    assert (await repo.root_run("orphan")).id == "orphan"
+
+
 async def test_add_token_usage_and_cost_record(session: AsyncSession) -> None:
     await seed_agent(session)
     repo = RunRepository(session)
@@ -116,9 +170,7 @@ async def test_add_token_usage_and_cost_record(session: AsyncSession) -> None:
     await repo.add_cost_record("run-1", "fake-chat", 0.03, currency="USD")
 
     usages = (
-        await session.scalars(
-            select(TokenUsageRow).where(TokenUsageRow.run_id == "run-1")
-        )
+        await session.scalars(select(TokenUsageRow).where(TokenUsageRow.run_id == "run-1"))
     ).all()
     assert [(u.step_index, u.input_tokens, u.output_tokens) for u in usages] == [
         (0, 10, 20),

@@ -4,6 +4,9 @@
  */
 
 import type { components } from '@/api/schema';
+import type { PermissionOut, RoleOut, UserOut } from '@/api/access';
+import type { LogEntry } from '@/api/diagnostics';
+import type { SessionUser } from '@/lib/auth';
 
 type AgentDefinition = components['schemas']['AgentDefinition'];
 type AgentVersion = components['schemas']['AgentVersion'];
@@ -182,7 +185,13 @@ export const tools: ToolDescriptor[] = [
       required: ['order_id'],
     },
     risk: 'low',
-    contract: { timeout_seconds: 10, max_retries: 1, idempotent: true, approval_required: false },
+    contract: {
+      timeout_seconds: 10,
+      max_retries: 1,
+      idempotent: true,
+      approval_required: false,
+      execution_mode: 'sync',
+    },
     signature_hash: 'a1b2c3',
   },
   {
@@ -204,6 +213,7 @@ export const tools: ToolDescriptor[] = [
       max_retries: 0,
       idempotent: false,
       approval_required: true,
+      execution_mode: 'sync',
     },
     signature_hash: 'd4e5f6',
   },
@@ -221,7 +231,13 @@ export const tools: ToolDescriptor[] = [
       required: ['path'],
     },
     risk: 'low',
-    contract: { timeout_seconds: 5, max_retries: 2, idempotent: true, approval_required: false },
+    contract: {
+      timeout_seconds: 5,
+      max_retries: 2,
+      idempotent: true,
+      approval_required: false,
+      execution_mode: 'sync',
+    },
     signature_hash: 'f7a8b9',
   },
   {
@@ -234,7 +250,13 @@ export const tools: ToolDescriptor[] = [
       required: ['user_id', 'text'],
     },
     risk: 'medium',
-    contract: { timeout_seconds: 15, max_retries: 0, idempotent: false, approval_required: false },
+    contract: {
+      timeout_seconds: 15,
+      max_retries: 0,
+      idempotent: false,
+      approval_required: false,
+      execution_mode: 'sync',
+    },
     signature_hash: 'c0d1e2',
   },
 ];
@@ -635,7 +657,12 @@ export const evalReportDetails: Record<number, EvalReportDetail> = {
             passed: false,
             detail: '应拒答未拒答（错答）：事件流无 knowledge_no_hit，模型在低置信检索下作答',
           },
-          { kind: 'judge', passed: false, detail: 'judge 评分 2/4: 编造了不存在的政策', error: null },
+          {
+            kind: 'judge',
+            passed: false,
+            detail: 'judge 评分 2/4: 编造了不存在的政策',
+            error: null,
+          },
         ],
         run_id: 'run-0004',
         output: '我们支持 30 天无理由退货（编造）。',
@@ -776,4 +803,174 @@ export const refundFlowDetail = {
   cond_edges: [
     { from_node: 'compute_amount', then_node: 'approve', otherwise_node: 'execute_refund' },
   ],
+};
+
+// ---- 访问控制（安全模块 mock；UI 只信任服务端 permissions） ----
+export const permissions: PermissionOut[] = [
+  { key: 'config:read', name: '查看配置' },
+  { key: 'config:write', name: '修改配置' },
+  { key: 'run:read', name: '查看运行' },
+  { key: 'run:execute', name: '执行运行' },
+  { key: 'diagnostics:read', name: '查看日志排查' },
+  { key: 'security:manage', name: '管理用户与角色' },
+];
+
+export const roles: RoleOut[] = [
+  {
+    key: 'admin',
+    name: '管理员',
+    permissions: ['*'],
+    protected: true,
+  },
+  {
+    key: 'operator',
+    name: '操作员',
+    permissions: ['config:read', 'run:read', 'run:execute', 'diagnostics:read'],
+  },
+  {
+    key: 'viewer',
+    name: '观察者',
+    permissions: ['config:read', 'run:read'],
+  },
+];
+
+export const securityUsers: UserOut[] = [
+  {
+    id: 'u-admin',
+    username: 'alice',
+    display_name: 'Alice',
+    enabled: true,
+    role_keys: ['admin'],
+    created_at: NOW,
+    updated_at: NOW,
+  },
+  {
+    id: 'u-operator',
+    username: 'bob',
+    display_name: 'Bob',
+    enabled: true,
+    role_keys: ['operator'],
+    created_at: NOW,
+    updated_at: NOW,
+  },
+  {
+    id: 'u-viewer',
+    username: 'guest',
+    display_name: '访客',
+    enabled: false,
+    role_keys: ['viewer'],
+    created_at: NOW,
+    updated_at: NOW,
+  },
+];
+
+export const devUser: SessionUser = {
+  subject: 'dev',
+  username: 'dev',
+  display_name: '本地开发者',
+  roles: [],
+  permissions: ['*'],
+  auth_enabled: false,
+  is_bootstrap: false,
+};
+
+export const adminUser: SessionUser = {
+  subject: 'u-admin',
+  username: 'alice',
+  display_name: 'Alice',
+  roles: ['admin'],
+  permissions: ['*'],
+  auth_enabled: true,
+  is_bootstrap: true,
+};
+
+export const operatorUser: SessionUser = {
+  subject: 'u-operator',
+  username: 'bob',
+  display_name: 'Bob',
+  roles: ['operator'],
+  permissions: roles[1].permissions,
+  auth_enabled: true,
+  is_bootstrap: false,
+};
+
+export const viewerUser: SessionUser = {
+  subject: 'u-viewer',
+  username: 'guest',
+  display_name: '访客',
+  roles: ['viewer'],
+  permissions: roles[2].permissions,
+  auth_enabled: true,
+  is_bootstrap: false,
+};
+
+// ---- 统一排查日志（同一个关联键可从 Run/Trace/程序日志三边还原） ----
+export const diagnosticLogs: LogEntry[] = [
+  {
+    id: 'log-0001',
+    created_at: '2026-07-23T09:58:12Z',
+    level: 'INFO',
+    logger: 'luban.run',
+    message: 'run accepted',
+    pathname: 'app/api/runs.py',
+    lineno: 128,
+    session_id: 'sess-1001',
+    run_id: 'run-0001',
+    trace_id: 'trace-0001',
+    request_id: 'req-0001',
+    parent_run_id: null,
+    root_run_id: 'run-0001',
+    subject: 'user:user-1001',
+    exception: null,
+    extra: { agent_key: 'cs-agent' },
+  },
+  {
+    id: 'log-0002',
+    created_at: '2026-07-23T09:58:13.200Z',
+    level: 'INFO',
+    logger: 'luban.tool',
+    message: 'tool query-order completed',
+    pathname: 'app/tools/order.py',
+    lineno: 72,
+    session_id: 'sess-1001',
+    run_id: 'run-0001-search',
+    trace_id: 'trace-0001',
+    request_id: 'req-0001',
+    parent_run_id: 'run-0001',
+    root_run_id: 'run-0001',
+    subject: 'user:user-1001',
+    exception: null,
+    extra: { duration_ms: 180 },
+  },
+  {
+    id: 'log-0003',
+    created_at: '2026-07-23T09:59:32Z',
+    level: 'ERROR',
+    logger: 'luban.tool',
+    message: 'tool execution failed',
+    pathname: 'app/tools/refund.py',
+    lineno: 45,
+    session_id: 'sess-1002',
+    run_id: 'run-0002',
+    trace_id: 'trace-0002',
+    request_id: 'req-0002',
+    parent_run_id: null,
+    root_run_id: 'run-0002',
+    subject: 'user:user-1002',
+    exception: 'TimeoutError: refund provider timed out',
+    extra: { timeout_seconds: 30 },
+  },
+];
+
+/** 详情页专用的子 Run：主 runs 数组保持 3 条，不影响既有 Trace 列表测试。 */
+export const diagnosticChildRun: Run = {
+  ...runs[0],
+  id: 'run-0001-search',
+  parent_run_id: 'run-0001',
+  input: { user_input: '内部查询订单网关', variables: {} },
+  output: '订单 12345 状态为在途。',
+  end_reason: 'final_answer',
+  created_at: '2026-07-23T09:58:13Z',
+  started_at: '2026-07-23T09:58:13Z',
+  ended_at: '2026-07-23T09:58:13.4Z',
 };

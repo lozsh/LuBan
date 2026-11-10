@@ -163,8 +163,8 @@ async def test_auth_enabled_with_custom_provider_starts_without_key(db, registry
         assert ok.status_code == 200
 
 
-async def test_custom_auth_provider_takes_priority(db, registry):
-    """契约决策 2：用户注册的 AuthProvider 优先于内置 ApiKeyAuthProvider。"""
+async def test_custom_auth_provider_takes_priority_over_default_key(db, registry):
+    """自定义 AuthProvider 存在时优先接管，默认 API Key 不再拦截。"""
     from lubanagent.core import ErrorCode, LubanError
     from lubanagent.extension import Principal
 
@@ -176,9 +176,122 @@ async def test_custom_auth_provider_takes_priority(db, registry):
 
     registry.register_auth(HeaderNameAuth())
     async with await make_client(db, registry, auth_enabled=True, api_key="secret") as client:
-        # 内置 key 不再有效（用户 provider 接管鉴权）
+        # 自定义 Provider 存在时，默认 API Key 不再生效。
         builtin = await client.get("/v1/agents", headers={"Authorization": "Bearer secret"})
         assert builtin.status_code == 401
+        me = await client.get("/v1/auth/me", headers={"Authorization": "Bearer secret"})
+        assert me.status_code == 401
         # 用户 provider 的规则生效
         ok = await client.get("/v1/agents", headers={"X-User": "jian"})
         assert ok.status_code == 200
+
+
+async def test_unicode_bearer_token_is_stable_401(db, registry):
+    """非 ASCII token 不应触发 TypeError/500，而是稳定 401。"""
+    async with await make_client(db, registry, auth_enabled=True, api_key="secret") as client:
+        # HTTP header 是字节流，ASGI 按 latin-1 解码出非 ASCII str。
+        response = await client.get(
+            "/v1/agents", headers={"Authorization": b"Bearer \xfc\xf1\xef"}
+        )
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "AUTH_FAILED"
+
+
+async def test_db_only_bootstrap_lifespan_missing_bearer_is_401(db, registry):
+    """纯数据库模式：真实 lifespan 引导 admin；匿名缺 bearer 是 401 而非 500。"""
+    application = create_app(
+        settings=make_settings(
+            auth_enabled=True,
+            api_key=None,
+            auth_database_enabled=True,
+            admin_bootstrap_password="bootstrap-pass-123",
+            observability_backend="none",
+        ),
+        registry=registry,
+        db=db,
+    )
+    async with application.router.lifespan_context(application):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=application), base_url="http://test"
+        ) as client:
+            missing = await client.get("/v1/agents")
+            assert missing.status_code == 401
+            assert missing.json()["error"]["code"] == "AUTH_FAILED"
+            login = await client.post(
+                "/v1/auth/login",
+                json={"username": "admin", "password": "bootstrap-pass-123"},
+            )
+            assert login.status_code == 200, login.text
+            token = login.json()["access_token"]
+            me = await client.get(
+                "/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+            )
+            assert me.status_code == 200
+            assert me.json()["roles"] == ["admin"]
+            assert me.json()["is_bootstrap"] is True
+            ok = await client.get(
+                "/v1/agents", headers={"Authorization": f"Bearer {token}"}
+            )
+            assert ok.status_code == 200
+
+
+async def test_login_username_bucket_rate_limit(db, registry):
+    """username 桶只按账号计数：ghost 撞库被封不影响同 host 其他账号登录。"""
+    application = create_app(
+        settings=make_settings(
+            auth_enabled=True,
+            api_key="master-key",
+            rate_limit_per_minute=2,
+            observability_backend="none",
+        ),
+        registry=registry,
+        db=db,
+    )
+    limiter = application.state.ctx.rate_limiter
+    for _ in range(2):
+        assert await limiter.allow("login:user:ghost")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        blocked = await client.post(
+            "/v1/auth/login", json={"username": "ghost", "password": "wrong-password-123"}
+        )
+        assert blocked.status_code == 429
+        assert blocked.json()["error"]["code"] == "RATE_LIMITED"
+        create = await client.post(
+            "/v1/security/users",
+            headers={"Authorization": "Bearer master-key"},
+            json={
+                "username": "alice",
+                "display_name": "Alice",
+                "password": "a-very-secret-password",
+                "role_keys": [],
+            },
+        )
+        assert create.status_code == 200, create.text
+        ok = await client.post(
+            "/v1/auth/login",
+            json={"username": "alice", "password": "a-very-secret-password"},
+        )
+        assert ok.status_code == 200, ok.text
+
+
+async def test_login_does_not_trust_forwarded_for(db, registry):
+    """host 桶取真实连接来源，伪造 X-Forwarded-For 不能绕过登录限流。"""
+    async with await make_client(
+        db, registry, auth_enabled=True, api_key="master-key", rate_limit_per_minute=2
+    ) as client:
+        for index in range(2):
+            response = await client.post(
+                "/v1/auth/login",
+                headers={"X-Forwarded-For": f"10.0.0.{index}"},
+                json={"username": "ghost", "password": "wrong-password-123"},
+            )
+            assert response.status_code == 401
+        limited = await client.post(
+            "/v1/auth/login",
+            headers={"X-Forwarded-For": "10.0.0.99"},
+            json={"username": "ghost", "password": "wrong-password-123"},
+        )
+        assert limited.status_code == 429
+        assert limited.json()["error"]["code"] == "RATE_LIMITED"

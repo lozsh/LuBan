@@ -36,7 +36,7 @@
 | 业务数据库 | MySQL 8 | SQLite（开发期） | 改 `DATABASE_URL` env | 开发期免安装；生产用 MySQL |
 | 向量库 | 不启用 | 任选 | 最小 RAG 默认不启用，需要时配置 | 简单 Agent 不引入额外组件 |
 | RAG / 记忆 / 图编排 / 多 Agent | 不启用 | 按需启用 | 定义层配置 | 都是可选一等能力，默认不拖累简单 Agent |
-| 鉴权 | API Key（可插拔） | 自定义 AuthProvider | 实现 `AuthProvider` Protocol 注册 | 可关，方便接业务网关 |
+| 鉴权 | 数据库账号会话 / API Key / 可插拔 AuthProvider | 自定义 AuthProvider | 实现 `AuthProvider` Protocol 注册 | 平台 RBAC 管自身工作台；可配合业务网关 |
 | 限流 | 内存实现 | Redis 等 | 实现 `RateLimiter` Protocol | 多业务系统共用时换分布式实现 |
 
 具体替换操作（模型 / 观测 / 数据库 / 向量模型的完整命令）见[换模型与换后端](./swap-backends.md)。

@@ -1,5 +1,7 @@
 """Run 仓储：运行记录 CRUD 与 token 用量/费用明细，返回 core 领域对象。"""
 
+from typing import Any
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -110,6 +112,76 @@ class RunRepository:
             stmt = stmt.where(RunRow.user_id == user_id)
         rows = (await self._session.scalars(stmt)).all()
         return [await self._to_domain(row) for row in rows]
+
+    async def root_run(self, run_id: str) -> Run | None:
+        """沿实际父子关系取根；循环关系显式拒绝，不把其他会话拼进当前执行。"""
+        current = await self.get_run(run_id)
+        visited = set()
+        while current is not None and current.parent_run_id:
+            if current.id in visited:
+                raise LubanError(ErrorCode.VALIDATION_ERROR, "Run 父子关系存在循环")
+            visited.add(current.id)
+            parent = await self.get_run(current.parent_run_id)
+            if parent is None:
+                break
+            current = parent
+        return current
+
+    async def run_tree(self, run_id: str) -> list[Run]:
+        """使用递归 CTE 取根与后代；UNION 消除异常循环，不依赖列表页上限。"""
+        root = await self.root_run(run_id)
+        if root is None:
+            return []
+        tree = select(RunRow.id).where(RunRow.id == root.id).cte("diagnostic_tree", recursive=True)
+        tree = tree.union(select(RunRow.id).join(tree, RunRow.parent_run_id == tree.c.id))
+        rows = (
+            await self._session.scalars(
+                select(RunRow)
+                .where(RunRow.id.in_(select(tree.c.id)))
+                .order_by(RunRow.created_at, RunRow.id)
+            )
+        ).all()
+        result = [await self._to_domain(row) for row in rows]
+        # Root first is a structural fact, not an assumption about imported times.
+        return sorted(result, key=lambda run: run.id != root.id)
+
+    async def diagnostic_page(
+        self,
+        *,
+        session_id: str | None = None,
+        run_id: str | None = None,
+        trace_id: str | None = None,
+        user_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Run], int]:
+        conditions: list[Any] = []
+        for field, value in (
+            ("session_id", session_id),
+            ("id", run_id),
+            ("user_id", user_id),
+            ("status", status),
+        ):
+            if value is not None:
+                conditions.append(getattr(RunRow, field) == value)
+        if trace_id:
+            from lubanagent.persistence.models import TraceRow
+
+            conditions.append(RunRow.id.in_(select(TraceRow.run_id).where(TraceRow.id == trace_id)))
+        total = await self._session.scalar(
+            select(func.count()).select_from(RunRow).where(*conditions)
+        )
+        rows = (
+            await self._session.scalars(
+                select(RunRow)
+                .where(*conditions)
+                .order_by(RunRow.created_at.desc(), RunRow.id.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+        ).all()
+        return [await self._to_domain(row) for row in rows], int(total or 0)
 
     async def run_usage(self, run_id: str) -> tuple[int, int, float]:
         """该 run 账本已消费量：(input_tokens 合计, output_tokens 合计, cost 合计)。

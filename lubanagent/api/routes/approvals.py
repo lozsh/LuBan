@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from lubanagent.api.auth import get_principal
-from lubanagent.api.deps import ApprovalManagerDep
+from lubanagent.api.deps import ApprovalManagerDep, CtxDep
 from lubanagent.api.schemas import ApprovalOut, DecideOut, DecideRequest, ErrorOut
 from lubanagent.core import ErrorCode
 from lubanagent.extension import Principal
@@ -43,6 +43,7 @@ async def decide(
     body: DecideRequest,
     manager: ApprovalManagerDep,
     principal: PrincipalDep,
+    ctx: CtxDep,
 ):
     request = await manager.get(approval_id)
     if request is None or request.status != "pending":
@@ -51,10 +52,13 @@ async def decide(
             ErrorCode.VALIDATION_ERROR.value, f"审批不可决定: {approval_id}"
         )
         return JSONResponse(status_code=404, content=error.model_dump(mode="json"))
-    # 决定人归因取「已验证主体」（鉴权主体 subject），不信任请求体里的自报 decided_by
-    resolved = await manager.decide(
-        approval_id, body.approved, decided_by=principal.subject
+    # 开启鉴权时归因只信已验证主体；开发模式保留旧的 body.decided_by 兼容。
+    decided_by = (
+        principal.subject
+        if ctx.settings.auth_enabled
+        else (body.decided_by or principal.subject)
     )
+    resolved = await manager.decide(approval_id, body.approved, decided_by=decided_by)
     return DecideOut(
         status=resolved.status,
         decided_by=resolved.decided_by,

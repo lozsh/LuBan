@@ -36,6 +36,7 @@ from lubanagent.core import (
     TraceEvent,
     TraceEventType,
 )
+from lubanagent.core.log_context import current_log_context, log_context
 from lubanagent.core.redact import redact_value
 from lubanagent.extension import (
     ObservabilityBackend,
@@ -83,6 +84,7 @@ class McpToolDiscoverer(Protocol):
         self, key: str, *, into: Registry | None = None
     ) -> list[ToolDescriptor]: ...
 
+
 logger = logging.getLogger(__name__)
 
 _END = object()  # 队列收尾哨兵
@@ -109,14 +111,13 @@ _TERMINAL_EVENT_TYPE: dict[RunStatus, TraceEventType] = {
 }
 
 # 可 resume 的状态 = 非终态（对齐 H12 _TERMINAL_STATUSES 语义）
-_TERMINAL_STATUSES = frozenset(
-    {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
-)
+_TERMINAL_STATUSES = frozenset({RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED})
 
 
 def _thread_id(run_id: str) -> str:
     """普通 Run 的 checkpoint 线程标识（与图编排 thread 命名空间隔离）。"""
     return f"run-{run_id}"
+
 
 _MESSAGE_ROLES: dict[str, str] = {
     "system": "system",
@@ -130,8 +131,10 @@ _MESSAGE_ROLES: dict[str, str] = {
 def _messages_payload(messages: list[BaseMessage]) -> list[dict[str, str]]:
     """MODEL_CALL_STARTED 的 input 载荷：[{role, content}, ...]（H10 事件 schema）。"""
     return [
-        {"role": _MESSAGE_ROLES.get(str(getattr(message, "type", "")), "user"),
-         "content": _chunk_text(message)}
+        {
+            "role": _MESSAGE_ROLES.get(str(getattr(message, "type", "")), "user"),
+            "content": _chunk_text(message),
+        }
         for message in messages
     ]
 
@@ -204,6 +207,9 @@ class RunRequest:
     # H10 录制重放：Run 局部定义注入（安全副本：清空 skills/mcp_servers/长期记忆/
     # tool_signatures；不改库内版本定义）
     definition_override: AgentDefinition | None = None
+    request_id: str | None = None
+    root_run_id: str | None = None
+    subject: str | None = None
 
 
 class AgentRuntime:
@@ -229,9 +235,7 @@ class AgentRuntime:
         self._settings = settings
         # 异步工具调用开关：None 读 Settings（TOOL_ASYNC_ENABLED，默认 False）；
         # 关闭时 execution_mode="async" 的工具按 sync 路径执行（唯一存量路径，零行为变化）
-        self._allow_async = (
-            settings.tool_async_enabled if async_tools is None else async_tools
-        )
+        self._allow_async = settings.tool_async_enabled if async_tools is None else async_tools
         self._registry = registry if registry is not None else default_registry
         # 可选能力件：Skill 注册表 / 摘要器 / 长期记忆用户标识来源 / MCP 客户端登记处
         # （缺省即对应能力不启用；Agent 定义开启而缺依赖 → prepare/发现期显式 CONFIG_ERROR）
@@ -404,9 +408,12 @@ class AgentRuntime:
                     f"子 Run 由父编排推进，不接受直接 resume: {run_id}",
                     details={"run_id": run_id, "parent_run_id": run.parent_run_id},
                 )
-            if await self._checkpointer.aget_tuple(
-                {"configurable": {"thread_id": _thread_id(run_id)}}
-            ) is None:
+            if (
+                await self._checkpointer.aget_tuple(
+                    {"configurable": {"thread_id": _thread_id(run_id)}}
+                )
+                is None
+            ):
                 raise LubanError(
                     ErrorCode.RUN_NOT_FOUND,
                     f"无可续跑的 checkpoint: {run_id}",
@@ -524,6 +531,64 @@ class AgentRuntime:
     # ------------------------------------------------------- 执行体（步骤 4-11）
 
     async def _execute(
+        self,
+        request: RunRequest,
+        definition: AgentDefinition,
+        resolution: BrainResolution,
+        run_id: str,
+        queue: asyncio.Queue[Any],
+        *,
+        resume_run: Run | None = None,
+    ) -> None:
+        inherited = current_log_context()
+        root_run_id = (
+            request.root_run_id or inherited.get("root_run_id") or request.parent_run_id or run_id
+        )
+        try:
+            if request.parent_run_id:
+                # A resumed/direct child need not share a live parent task; derive
+                # root from durable links rather than a stale process context.
+                async with self._db.session() as session:
+                    root = await RunRepository(session).root_run(request.parent_run_id)
+                    if root is not None:
+                        root_run_id = root.id
+                        if root.session_id:
+                            inherited["session_id"] = root.session_id
+        except Exception as exc:
+            # This task feeds stream() through a queue: preparation errors must
+            # close that queue as well, otherwise the consumer hangs indefinitely.
+            await queue.put(
+                _new_event(
+                    run_id,
+                    TraceEventType.RUN_FAILED,
+                    {"end_reason": EndReason.ERROR.value, "error": _error_dict(exc)},
+                )
+            )
+            await queue.put(_END)
+            return
+        with log_context(
+            run_id=run_id,
+            trace_id=f"trace-{run_id}",
+            root_run_id=root_run_id,
+            session_id=inherited.get("session_id")
+            if request.parent_run_id and inherited.get("session_id")
+            else request.session_id,
+            parent_run_id=request.parent_run_id,
+            request_id=request.request_id or inherited.get("request_id"),
+            subject=request.subject or inherited.get("subject"),
+        ):
+            logger.info(
+                "Agent run started",
+                extra={"agent_key": definition.key, "resumed": resume_run is not None},
+            )
+            try:
+                await self._execute_body(
+                    request, definition, resolution, run_id, queue, resume_run=resume_run
+                )
+            finally:
+                logger.info("Agent run execution finished", extra={"agent_key": definition.key})
+
+    async def _execute_body(
         self,
         request: RunRequest,
         definition: AgentDefinition,
@@ -734,15 +799,11 @@ class AgentRuntime:
                     if async_guidance:
                         suffix_text = f"{suffix_text}\n\n{async_guidance}"
                     system_prompt = (
-                        f"{system_prompt}\n\n{suffix_text}"
-                        if system_prompt
-                        else suffix_text
+                        f"{system_prompt}\n\n{suffix_text}" if system_prompt else suffix_text
                     )
                 elif async_guidance:
                     system_prompt = (
-                        f"{system_prompt}\n\n{async_guidance}"
-                        if system_prompt
-                        else async_guidance
+                        f"{system_prompt}\n\n{async_guidance}" if system_prompt else async_guidance
                     )
                 messages: list[BaseMessage] = []
                 if system_prompt:
@@ -975,9 +1036,7 @@ class AgentRuntime:
         abandoned_tasks: list[str] = []
         if async_runner is not None:
             try:
-                abandoned_tasks = await async_runner.cancel_all(
-                    reason="run_finalized", emit=emit
-                )
+                abandoned_tasks = await async_runner.cancel_all(reason="run_finalized", emit=emit)
             except Exception:
                 logger.exception("Run %s 异步任务清理异常", run_id)
         if extra_event is not None and not abandoned:

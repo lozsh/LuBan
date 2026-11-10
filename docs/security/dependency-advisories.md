@@ -3,7 +3,7 @@
 > 规则：优先兼容升级消除；无法消除的命中必须登记**公告、不可达/低危证据、理由、到期复核日**，
 > 不允许全局忽略。本文件是 CI 安全扫描门槛的唯一豁免依据，每次复核后更新。
 
-扫描日期：2026-10-15（npm audit / pip-audit，按 `package-lock.json` 与 `uv.lock` 锁定版本）。
+扫描日期：2026-11-10（pip-audit 实测 `uv sync --frozen` 全量环境）+ 2026-10-15（npm audit / pip-audit，按 `package-lock.json` 与 `uv.lock` 锁定版本）。
 
 ## Python（pip-audit：已清零）
 
@@ -11,6 +11,11 @@
 全部在兼容范围内升级消除并刷新锁：`pypdf>=6.19`（直接依赖下限提升），其余四个传递依赖经
 `uv lock --upgrade-package` 拉到已修复版。**当前 pip-audit 命中 0**；`mcp` 收敛为 `>=1.9,<2`
 （2.x 改名 `streamablehttp_client`，未经迁移验证不升级，非安全命中）。
+
+2026-11-10 复扫：`uv.lock` 仅升级 `certifi` 2026.7.22→2026.10.23、`pypdf` 6.20.1→6.21.4
+（清两者既有公告，其余锁定版本不变）；对 `uv sync --frozen` 后的完整 site-packages 实测
+`pip-audit --path`，结果 **No known vulnerabilities found**（仅项目自身 `lubanagent` 因不在
+PyPI 跳过，属预期）。npm 侧未新增升级，仍按下表复核日跟踪。
 
 ## 前端（npm audit：兼容范围内已修，余项如下）
 

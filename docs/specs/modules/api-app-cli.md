@@ -20,7 +20,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 ### HTTP
 
-框架 `/v1/*` 路由由 `api_router` 的 `Depends(get_principal)` 保护；工厂 `extra_routers` 注册时也注入该依赖，用户领地团队 router 自身另显式绑定身份依赖（`lubanagent/app/factory.py:154-156`、`app/api/teams.py:12-16`）。鉴权关闭时按配置放行，但仍限流；`/health` 不鉴权（`factory.py:150-156`）。未知 `/v1/*` 是 JSON 404，不回退 SPA。
+框架 `api_router` 聚合的 `/v1/*` 路由、security 管理路由和工厂 `extra_routers` 都经过 `get_principal`；`get_principal` 先认证主体，再按 method/path 计算所需平台权限并逐请求裁决（`api/auth.py`）。数据库账号登录、当前身份与退出由 `routes/security.py` 暴露；`POST /v1/auth/login` 免鉴权，其余 `/v1/auth/*` 仍要求认证。鉴权关闭时按配置放行 anonymous，但仍限流；`/health` 不鉴权。未知 `/v1/*` 是 JSON 404，不回退 SPA。HTTP 中间件为每个响应追加 `X-Request-ID`。
 
 #### agents.py（`lubanagent/api/routes/agents.py`）
 
@@ -138,6 +138,27 @@ skills 路由的特殊架构约束：**不 import `lubanagent.skill` 模块**，
 
 knowledge 路由与 skills 同款架构约束：**不 import `lubanagent.knowledge` 模块**（"api → knowledge 为分层禁忌"，import-linter 守卫），只经 `request.app.state.knowledge_manager` 鸭子类型取用；但与 skills 不同，manager 由**框架工厂**（`lubanagent/app/factory.py:92-98`）而非用户领地装配挂载（来源：`knowledge.py:1-6` 模块 docstring）。
 
+#### diagnostics.py（`lubanagent/api/routes/diagnostics.py`）—— 平台日志与执行树
+
+| 方法 | 路径 | 说明 | 错误情况 |
+|---|---|---|---|
+| GET | `/v1/logs` | 查询 `application_logs`；先 `DatabaseLogWriter.flush()`。query：`session_id/run_id/trace_id/request_id/root_run_id/level/logger/q/from_time/to_time/limit/offset`（limit 1-200，默认 50） | `from_time > to_time` → `VALIDATION_ERROR`；`limit` 超出 1-200 → 422；响应 `LogPage{items,total,limit,offset,dropped_count,write_failures}`；`dropped_count` 是累计丢失日志条数（队列满、批次写失败/取消等所有原因），`write_failures` 是写入/清理失败事件次数（非条数） |
+| GET | `/v1/diagnostics/runs` | 诊断分页 Run；query：`session_id/run_id/trace_id/user_id/status/limit/offset`（limit 1-200，默认 50）；与 `/v1/logs` 互相独立分页（各自 `limit`/`offset`/`total`）；展示前对 Run input/output/error 做 `redact_value` | 无特殊错误（空页正常）；`limit` 超出 1-200 → 422 |
+| GET | `/v1/diagnostics/runs/{identifier}` | `identifier` 接受 Run ID 或 Trace ID；返回脱敏后的 `run`（即 identifier 定位到的**当前 Run**，不保证是根）、`runs`（执行树，`runs[0]` 才是真根 Run）、每个后代 Run 的 Trace 头与事件，以及按真根 Run 统计的 `log_count`；日志本体不随本端点返回，经 `/v1/logs?root_run_id=<真根>&limit=50&offset=N` 服务端真实分页（`total` 随响应返回，可翻第 501 条之后） | 找不到 Trace/Run → 404 `RUN_NOT_FOUND` |
+
+#### security.py（`lubanagent/api/routes/security.py`）—— 登录与平台 RBAC
+
+| 方法 | 路径 | 说明 | 错误情况 |
+|---|---|---|---|
+| POST | `/v1/auth/login` | 用户名密码登录；按 `login:host:<client_host>` 限流，成功创建随机 opaque bearer 会话并返回 token/expires/user | 主机限流 → `RATE_LIMITED`；格式非法 → `VALIDATION_ERROR`；用户不存在、禁用或密码错误统一 `AUTH_FAILED` |
+| GET | `/v1/auth/me` | 返回当前数据库会话账号的 subject、角色、权限、`auth_enabled` 与 bootstrap 标记 | 非 DB 会话凭据 → `AUTH_FAILED` |
+| POST | `/v1/auth/logout` | 撤销当前 bearer 对应 DB 会话，返回 `{logged_out:true}` | 已认证前提；token 不存在时 `revoked=false`，接口仍返回 logged_out |
+| GET/POST | `/v1/security/users` | 列出/创建用户；创建密码 12-256，角色 key 合法且存在 | 用户名重复/角色不存在/密码过短 → `VALIDATION_ERROR` |
+| PATCH | `/v1/security/users/{user_id}` | 修改显示名、enabled、角色或密码；禁用/改密撤销相关会话（角色变化不撤销，每请求重载即生效），保护最后一个启用 admin | 用户/角色不存在或最后一个 admin 受保护 → `VALIDATION_ERROR` |
+| GET/POST | `/v1/security/roles` | 列出/创建角色与权限集；权限 key 格式 `[a-z]+:[a-z_]+` 且必须已登记 | key 非法、重复或权限不存在 → `VALIDATION_ERROR` |
+| PATCH/DELETE | `/v1/security/roles/{key}` | 更新或删除角色；admin 必须保持全部权限，仅 admin 角色受保护不可删（operator/auditor/viewer 可改可删） | 缺失/受保护/非法 → `VALIDATION_ERROR` |
+| GET | `/v1/security/permissions` | 返回已登记权限 | 无 |
+
 #### 其他（不在 `/v1` 前缀下、不经鉴权）
 
 | 方法 | 路径 | 说明 | 错误情况 |
@@ -164,7 +185,7 @@ knowledge 路由与 skills 同款架构约束：**不 import `lubanagent.knowled
 
 | Schema | 字段 | 说明 |
 |---|---|---|
-| `RunCreateRequest` | `input: str`、`session_id: str\|None`、`user_id: str\|None`（`Field(default=None, max_length=128)`）、`version: int\|None`、`variables: dict[str,str]\|None`、`history: list[dict[str,str]]\|None`、`instructions_override: str\|None` | POST `/v1/agents/{key}/runs` 请求体；`user_id` 为透传观测标签（业务侧用户 id，引擎不做用户管理/鉴权，仅落库供 `GET /v1/runs?user_id=` 排查过滤）；`history` 为 OpenAI 风格 `[{role, content}]`，v1 不查库（注释标注 D3-2）；`instructions_override` 仅用于试跑临时替换 instructions，不入库 |
+| `RunCreateRequest` | `input: str`、`session_id: str\|None`、`user_id: str\|None`（`Field(default=None, max_length=128)`）、`version: int\|None`、`variables: dict[str,str]\|None`、`history: list[dict[str,str]]\|None`、`instructions_override: str\|None` | POST `/v1/agents/{key}/runs` 请求体；`user_id` 是业务侧透传观测标签，不是平台账号外键；`request_id` 和已认证 `subject` 由路由从 HTTP state 注入 `RunRequest`，不由客户端声明；`history` 为 OpenAI 风格 `[{role, content}]`，v1 不查库（注释标注 D3-2）；`instructions_override` 仅用于试跑临时替换 instructions，不入库 |
 | `ModelDefinitionOut` | `key`、`provider`、`model_name`、`factory`、`capability: ModelCapability`、`params: dict`、`api_key_env: str\|None`、`enabled: bool` | 模型定义对外脱敏视图：只输出 `api_key_env`（变量名），不输出 `base_url` 等连接信息；`params` 值经 `redact_registered_model_params` 脱敏，非 openai_compat 白名单字段只显示 `[REDACTED]`（`routes/models.py:14-25`） |
 | `BrainMappingSetRequest` | `profile: BrainProfile`、`model_key: str`、`env: str\|None` | PUT `/v1/brain-mappings` 请求体；`env` 缺省取 `settings.env` |
 | `BrainMappingOut` | `env`、`profile: BrainProfile`、`model_key` | — |
@@ -182,7 +203,7 @@ knowledge 路由与 skills 同款架构约束：**不 import `lubanagent.knowled
 | `ErrorBody` | `code: str`、`message: str`、`details: dict = {}`、`retryable: bool = False` | — |
 | `ErrorOut` | `error: ErrorBody`；工厂方法 `ErrorOut.of(code, message, details=, retryable=)` | 统一错误响应包络 `{"error": {...}}` |
 
-镜像别名（不重新定义，直接复用 core 领域模型作为 `response_model`）：`AgentDefinitionOut = AgentDefinition`、`RunOut = Run`（来源：`schemas.py:17-19`）；prompts 路由同样直接以 `PromptDefinition`/`PromptVersion` 为请求/响应模型，不做映射裁剪（来源：`routes/prompts.py:7`）；evals 路由以 `EvalReportSummary`/`EvalReportDetail`（`lubanagent/core/evaluation.py`）为响应模型（来源：`routes/evals.py:10`）。
+镜像别名（不重新定义，直接复用 core 领域模型作为 `response_model`）：`AgentDefinitionOut = AgentDefinition`、`RunOut = Run`（来源：`schemas.py:17-19`）；prompts 路由同样直接以 `PromptDefinition`/`PromptVersion` 为请求/响应模型，不做映射裁剪（来源：`routes/prompts.py:7`）；evals 路由以 `EvalReportSummary`/`EvalReportDetail`（`lubanagent/core/evaluation.py`）为响应模型（来源：`routes/evals.py:10`）；security 路由的登录/身份/退出与用户/角色/权限管理端点均已声明 `response_model`（`LoginResponse`/`SessionUserOut`/`LogoutResponse`/`UserPublic`/`RolePublic`/`RoleDeleteResponse`/`PermissionPublic`，来源：`routes/security.py:148-341`），OpenAPI schema 完整。
 
 ## 行为
 
@@ -201,14 +222,13 @@ create_app(settings?, registry?, db?, on_startup?, extra_routers=(), ui_dist=Non
 ├── 1. settings = settings or get_settings()  # 配置与日志
 │   └── configure_logging(log_level, log_format)
 ├── 2. db = db or create_database(settings)  # 迁移不随启动自动跑，走 `luban migrate`
+│   └── log_database_enabled → DatabaseLogWriter(db, capacity, retention_days)
 ├── 3. registry = registry or default_registry
 │   ├── for package in settings.extension_packages: discover([package], registry)
 │   │   └── ModuleNotFoundError 且 exc.name == package → warning 跳过（空脚手架也能起）
-│   └── auth_enabled 且无 api_key 且 registry.get_auth() is None → raise LubanError(CONFIG_ERROR)
-│       # 装配期 fail fast（风险 R6，factory.py:60-77）：该组合下默认 AuthProvider 会拒绝所有
-│       # /v1 请求（起服务只会"表面起来了但接口全挂"），直接拒绝启动并给三条出路：
-│       # (1) 设 API_KEY（配合 AUTH_ENABLED=true）；(2) Registry 注册自定义 AuthProvider；
-│       # (3) 关闭鉴权（AUTH_ENABLED=false，仅限开发期零配置）。放在 discover 之后：用户扩展可注册 AuthProvider。
+│   └── auth_enabled 且无 api_key 且无 AuthProvider 且 !auth_database_enabled → CONFIG_ERROR
+│       # 装配期 fail fast：可用出路是 API_KEY、AUTH_DATABASE_ENABLED=true、自定义 AuthProvider
+│       # 或显式关闭鉴权（仅开发期）。放在 discover 之后：用户扩展可注册 AuthProvider。
 ├── 4. observability = resolve_backend(settings, registry)
 │   └── isinstance(SafeBackend) → observability.set_sink(db_failure_sink(db))  # 外发失败落 export_failures
 │       + observability.set_retry_db(db)  # drain 时回放待重试留痕（成功删/失败计次/达上限放弃，factory.py:84）
@@ -223,9 +243,12 @@ create_app(settings?, registry?, db?, on_startup?, extra_routers=(), ui_dist=Non
 ├── 6. app = FastAPI(lifespan=...)
 │   ├── app.state.ctx = AppContext(settings, db, registry, runtime, approval_manager, rate_limiter)
 │   ├── app.state.knowledge_store / knowledge_embedder / knowledge_manager  # 种子源与 knowledge 路由共用同一实例（factory.py:126-129）
+│   ├── app.state.log_writer = log_writer
+│   ├── add_middleware(RequestLogMiddleware, writer=log_writer)  # X-Request-ID + 请求日志 + 查询前 flush
 │   ├── register_error_handlers(app)  # RequestValidationError → LubanError → Exception 顺序注册
 │   ├── GET /health（无鉴权）
 │   ├── app.include_router(api_router)  # 框架 /v1/* 路由
+│   ├── app.include_router(security_router)  # auth/login 免鉴权；me/logout/security/* 内部鉴权
 │   └── for router in extra_routers: app.include_router(router, dependencies=[Depends(get_principal)])
 └── 7. [条件] ui_dist（缺省 lubanagent/ui/dist）存在
     ├── 是 → 路由之后挂 StaticFiles("/")；仅 GET/HEAD 页面导航 404 回退 index.html
@@ -233,7 +256,7 @@ create_app(settings?, registry?, db?, on_startup?, extra_routers=(), ui_dist=Non
     └── 否 → 跳过（开发期前端独立 `npm run dev`）
 ```
 
-lifespan 钩子（`factory.py:150-172`）：启动时若装配了 `mcp_registry` 先登记 `mcp_servers` 表 enabled 记录（失败不阻断启动），再 `await knowledge_manager.ensure_restored()`（读 `knowledge_sources` 全表恢复托管知识源的 registry 注册，失败仅告警不阻断启动），再执行传入的 `on_startup` 回调（用户领地挂扩展/灌知识源，因 FastAPI `on_event("startup")` 已被 `lifespan` 取代）；关闭时若 `observability` 是 `SafeBackend` 则 `await observability.drain()`（外发收尾）、`mcp_registry.aclose()`（MCP 长连释放），再 `await db.close()`（释放连接池）。
+lifespan 钩子（`factory.py:176-243`）：启动时先 `log_writer.start()`（异步日志写入器，装配了 writer 才有；后续启动/运行期日志经 `log_context(log_sink=...)` 入队）；`AUTH_DATABASE_ENABLED=true` 时做管理员引导检查——设置 `LUBAN_ADMIN_PASSWORD` 且 admin 不存在则播种 bootstrap admin，无活跃 admin 且也无 API Key/自定义 provider 时直接 `CONFIG_ERROR` 拒绝启动，否则 warning；若装配 `mcp_registry` 先登记 `mcp_servers` 表 enabled 记录（失败不阻断启动），再 `await knowledge_manager.ensure_restored()`（读 `knowledge_sources` 全表恢复托管知识源的 registry 注册，失败仅告警不阻断启动），再执行传入的 `on_startup` 回调（用户领地挂扩展/灌知识源，因 FastAPI `on_event("startup")` 已被 `lifespan` 取代），可选 Watchdog 控制回路启动；关闭按嵌套 `finally` 顺序执行：取消 Watchdog 任务 → 若 `observability` 是 `SafeBackend` 则 `await observability.drain()`（外发收尾）→ `mcp_registry.aclose()`（MCP 长连释放）→ `await log_writer.close()`（先停止接收、等待 in-flight 批次提交，再 flush 剩余队列）→ `await db.close()`（释放连接池）；任一层失败都会继续释放下层资源。
 
 #### `seed_defaults()`（`lubanagent/app/lifespan.py:11-29`）
 
@@ -311,9 +334,10 @@ CLI 侧输出：逐 case `[PASS]`/`[FAIL]` + 失败原因；`pass_rate` 汇总�
 
 ## 边界规则
 
-- **鉴权强制点**：框架 `api_router` 聚合依赖覆盖框架 `/v1/*`；用户 router 必须显式保护，工厂为 `extra_routers` 再注入 `get_principal` 并在静态挂载前注册（`factory.py:154-185`），示例 `teams.router` 显式依赖（`app/api/teams.py:12-16`）。`/health` 不鉴权；`/v1` 未知路由不会被 SPA 页面回退接管。
-- **鉴权缺省行为**：`ctx.settings.auth_enabled=False` 时直接使用 `Principal(subject="anonymous")`，不执行身份校验但仍限流（`api/auth.py:76-94`）；此时接口对外无认证保护，需运维层自行加防护。
-- **鉴权优先级与配置缺失 fail fast**：`auth_enabled=True` 时优先用 `registry.get_auth()`（用户自定义 `AuthProvider`），未注册则退化到框架内置 `ApiKeyAuthProvider(settings.api_key)`。若开启鉴权但既未配置 `api_key` 又未注册自定义 provider，`create_app()` **装配期（扩展扫描后）直接 raise `LubanError(CONFIG_ERROR)` 拒绝启动**，错误信息给出三条出路（设 API_KEY / 注册自定义 AuthProvider / 关闭鉴权）（风险 R6，来源：`lubanagent/app/factory.py:60-77`）。`ApiKeyAuthProvider.verify()` 运行时的同款 `CONFIG_ERROR` 分支保留为纵深防御——仅供绕过工厂直接构造 `ApiKeyAuthProvider(None)` 的场景兜底（来源：`auth.py:22-26` 注释）。
+- **鉴权强制点**：框架 `api_router` 聚合依赖覆盖框架 `/v1/*`；security 路由的 me/logout 与 managed router 显式挂 `get_principal`，用户 router 必须显式保护，工厂为 `extra_routers` 再注入 `get_principal` 并在静态挂载前注册。`/health` 与 `POST /v1/auth/login` 不要求既有凭据；`/v1` 未知路由不会被 SPA 页面回退接管。
+- **鉴权优先级与权限裁决**：`auth_enabled=True` 时 Master API Key 优先映射为 bootstrap admin，自定义 `AuthProvider` 次之，否则数据库 bearer 会话；无 bearer 时退化到内置 API Key。认证后按 `required_permission(method,path)` 裁决：auth 路径仅认证、security 要求 `security:manage`、logs/diagnostics 要求 `diagnostics:read`，runs/traces/approvals、评测和其余配置读写分别映射 run/eval/config 权限；未知写路径默认 `config:write`。`auth_enabled=False` 使用 anonymous 全权限主体，仅限开发模式且仍限流。
+- **配置缺失 fail fast**：`create_app()` 在扩展扫描后检查 `AUTH_ENABLED=true` 且无 `API_KEY`、无自定义 provider、且 `AUTH_DATABASE_ENABLED=false` 的组合，直接 raise `CONFIG_ERROR` 拒绝启动；可用出路是设置 `API_KEY`、开启数据库账号模式、注册自定义 AuthProvider 或显式关闭鉴权（仅开发期）。`AUTH_DATABASE_ENABLED=true` 且设置 `LUBAN_ADMIN_PASSWORD` 时 lifespan 只在 admin 不存在时创建 bootstrap admin；无活跃 admin 且未设置密码时，若也没有 API Key 和自定义 provider 则 lifespan 直接 `CONFIG_ERROR`，否则 warning 提示先经 API Key 创建账号；已有活跃 admin 重启不要求引导密码。
+- **平台 RBAC 边界**：每次请求从 `SecurityRepository` 重载 token 对应启用用户和当前角色权限；禁用、改密、退出立即撤销会话，角色/权限变化不撤销会话但下一请求重载即生效。UI 菜单与路由 guard 只使用 `/v1/auth/me` 返回的权限做展示和导航，不是安全边界。权限是平台级功能开关，不做租户、部门或行级数据范围；header/body 声明的角色不可信。
 - **SPA 回退边界**：有 UI dist 时仅 GET/HEAD 且无文件后缀、非 `/v1`/`/v1/*`、非 `/assets/`/`/favicon*`/`/.well-known/` 的 404 返回 `index.html`；其他错误沿用 HTTP 异常响应，未知 API 保持 JSON 404（`factory.py:170-185`）。
 - **限流规则**：`auth_enabled=True` 时先由 `AuthProvider.verify()` 验证，再按返回的 `Principal.subject` 分桶；关闭鉴权时所有请求统一使用 `anonymous` 桶，不采信任意 Bearer 或 `X-Forwarded-For` 拆桶（`api/auth.py:76-94`）。每桶每 60 秒最多 `settings.rate_limit_per_minute` 次（滑动窗口）；`InMemoryRateLimiter` 默认最多 4096 桶，每次调用清理 60 秒窗口内已过期的命中，空桶回收；容量已满时拒绝新主体而不驱逐仍有命中的桶。被限流请求返回 `RATE_LIMITED` 429（`api/auth.py:46-73、91-94`、`api/errors.py:29`）。计数只在单进程内有效，多进程/多实例不共享；当前不使用转发 IP 作为身份。内置共享 API Key 验证后统一返回 `api-key-holder`，只能证明持有该 Key，不能识别独立人员（`api/auth.py:21-30`）。
 - **错误码 → HTTP 状态映射钉死在 `ERROR_HTTP_STATUS` 字典**（`errors.py:16-32`），未覆盖的错误码默认映射到 500；异常处理器注册顺序固定为 `RequestValidationError → LubanError → Exception`（`errors.py:42`），未捕获异常只记录堆栈到日志，响应体不泄露堆栈信息（`errors.py:61-65`）。
@@ -335,8 +359,10 @@ CLI 侧输出：逐 case `[PASS]`/`[FAIL]` + 失败原因；`pass_rate` 汇总�
 
 | 术语 | 语义 |
 |---|---|
-| `AuthProvider` | `lubanagent.extension` 定义的鉴权扩展点 Protocol（`async def verify(request: AuthRequest) -> Principal`），用户可经 `Registry.register_auth()` 注册自定义实现替换框架内置 `ApiKeyAuthProvider`；验证失败须抛 `LubanError(AUTH_FAILED)`（来源：`lubanagent/extension/protocols.py:46-48`） |
-| `Principal` | 框架中立的鉴权主体结果，字段 `subject: str`、`scopes: list[str]`、`claims: dict`；`auth_enabled=False` 时固定为 `Principal(subject="anonymous")`（来源：`protocols.py:20-25`、`api/auth.py:86-91`） |
+| `AuthProvider` | `lubanagent.extension` 定义的鉴权扩展点 Protocol（`async def verify(request: AuthRequest) -> Principal`），用户可经 `Registry.register_auth()` 注册自定义实现；其返回 `scopes` 被规范化为唯一可信权限，空 scopes 只保留 `config:read`，header/body 声明角色不会被采纳（来源：`lubanagent/extension/protocols.py`、`api/auth.py`） |
+| `Principal` | 框架中立的鉴权主体结果，字段 `subject: str`、`scopes: list[str]`、`claims: dict`；DB 会话在 claims 中携带服务端生成的 user/permissions 视图，`auth_enabled=False` 时为 anonymous 全权限主体（来源：`protocols.py`、`api/auth.py`） |
+| `SecurityRepository` | 数据库账号、角色、权限与哈希登录会话的统一读写入口；负责幂等播种、scrypt 密码验证、opaque token 哈希、实时会话撤销与最后一个 admin 保护 |
+| `X-Request-ID` | ASGI 请求中间件生成或校验的请求关联 ID，写入 HTTP 响应与日志上下文；仅用于 `GET /v1/logs?request_id=`，不是 Run 持久化字段 |
 | `AuthRequest` | 框架中立的鉴权请求载体，`headers`/`query_params` 均已由 `api/auth.py` 从 FastAPI `Request` 小写化适配后传入，与具体 Web 框架解耦（来源：`protocols.py:28-32`） |
 | `AppContext` | 挂在 `app.state.ctx` 上的应用装配产物 dataclass，聚合 `settings/db/registry/runtime/approval_manager/rate_limiter`；测试可整体替换或经 FastAPI `dependency_overrides` 注入替身（来源：`deps.py:18-27`） |
 | 装配根 | `create_app()` 的角色定位——框架侧 `lubanagent/app/factory.py::create_app` 是"框架装配根"，用户侧 `app/main.py::create_app` 是"用户装配根"（调用框架版本 + 挂业务扩展），二者同名但分属不同领地 |
@@ -350,7 +376,7 @@ CLI 侧输出：逐 case `[PASS]`/`[FAIL]` + 失败原因；`pass_rate` 汇总�
 
 | 依赖方 | 触发接口 | 依赖内容 |
 |---|---|---|
-| `lubanagent.persistence` | 所有 `db.session()` 调用点 | `AgentRepository`/`PromptRepository`/`resolve_prompt_reference`/`ModelRepository`/`RunRepository`/`TraceRepository`/`EvalRepository` 仓储读写 + `DbApprovalStore`/`LubanCheckpointer`（`app/factory.py` 装配审批落库与 Run checkpoint），API 路由自身无独立表 |
+| `lubanagent.persistence` | 所有 `db.session()` 调用点 | `AgentRepository`/`PromptRepository`/`resolve_prompt_reference`/`ModelRepository`/`RunRepository`/`TraceRepository`/`EvalRepository`/`ApplicationLogRepository`/`SecurityRepository` 仓储读写 + `DbApprovalStore`/`LubanCheckpointer`，API 路由自身无独立表 |
 | `lubanagent.runtime` | `runs.py::create_run/resume_run/cancel_run` | `AgentRuntime.stream()`/`.stream_resume()`/`.cancel()`、`RunRequest`、`sse_stream()` 格式化 |
 | `lubanagent.extension` | `deps.py::AppContext.registry`、`auth.py::get_principal`、`factory.py::discover` | `Registry`（工具/图/钩子/鉴权/观测扩展点查询）、`AuthProvider`/`AuthRequest`/`Principal` 类型、`discover()` 扫描用户扩展包 |
 | `lubanagent.tool` | `deps.py::ApprovalManagerDep`、`tools.py::debug_tool` | `ApprovalManager`（审批状态）、`ToolResult`、`debug_tool()` |

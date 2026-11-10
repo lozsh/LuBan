@@ -2,6 +2,7 @@
 
 import inspect
 import json
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
@@ -19,8 +20,10 @@ from lubanagent.core import (
     ToolApprovalRequiredError,
     ToolDescriptor,
 )
+from lubanagent.core.log_context import current_log_context, log_context
 from lubanagent.extension import RegisteredTool, Registry, default_registry
 
+logger = logging.getLogger(__name__)
 ApprovalHandler = Callable[[ToolDescriptor, dict[str, Any]], Awaitable[bool]]  # True=批准
 
 _JSON_TYPES: dict[str, type] = {
@@ -184,6 +187,36 @@ class ToolExecutor:
         *,
         ctx: RunContext | None = None,
     ) -> ToolResult:
+        inherited = current_log_context()
+        values = {"tool_key": registered.descriptor.key}
+        if ctx is not None:
+            values.update(
+                {
+                    "run_id": ctx.run_id,
+                    "trace_id": f"trace-{ctx.run_id}",
+                    "session_id": inherited.get("session_id") or ctx.session_id,
+                }
+            )
+        with log_context(**values):
+            logger.info("Tool execution started", extra={"tool_key": registered.descriptor.key})
+            result = await self._launch_body(registered, validated_args, ctx=ctx)
+            logger.info(
+                "Tool execution completed" if result.success else "Tool execution failed",
+                extra={
+                    "tool_key": registered.descriptor.key,
+                    "success": result.success,
+                    "duration_ms": result.duration_ms,
+                },
+            )
+            return result
+
+    async def _launch_body(
+        self,
+        registered: RegisteredTool,
+        validated_args: dict[str, Any],
+        *,
+        ctx: RunContext | None = None,
+    ) -> ToolResult:
         """管线段 4-6：执行 + 超时 + 重试（preflight 通过后调用；仅幂等工具可重试）。"""
         descriptor = registered.descriptor
         contract = descriptor.contract
@@ -212,6 +245,7 @@ class ToolExecutor:
             except LubanError as exc:
                 error = exc
             except Exception as exc:  # 契约: 统一收敛为 TOOL_EXECUTION_FAILED
+                logger.exception("Tool handler raised", extra={"tool_key": descriptor.key})
                 # 异常正文可能携带上游 URL/凭证，不进错误详情；类型名供排查，堆栈仅日志
                 error = LubanError(
                     ErrorCode.TOOL_EXECUTION_FAILED,

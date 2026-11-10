@@ -14,7 +14,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 ## 定位
 
-persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，核心表覆盖 Agent 定义版本化（`agents`/`agent_versions`）、Prompt 库（`prompts`/`prompt_versions`，与 agents 同型的指针 + 不可变快照）、运行执行记录（`runs`）、可观测双写（`traces`/`trace_events`/`token_usages`/`cost_records`/`export_failures`）、模型中心（`models`/`brain_mappings`）、能力/评测资产（`skills`/`mcp_servers`/`eval_datasets`/`eval_results`）、LangGraph 检查点（`checkpoints`）、审批记录（`approvals`）与知识/记忆（`knowledge_chunks`/`knowledge_sources`/`session_messages`/`session_summaries`/`long_term_memories`），共 23 张表；聚合根实体以 `AgentRow`/`PromptRow`/`RunRow`/`TraceRow` 为主，SQLAlchemy 声明基类为 `Base`（`lubanagent/persistence/base.py:6`）。数据库开发期 SQLite、生产 MySQL 8.0+，通过 `Database`/`create_database` 统一异步会话入口（`lubanagent/persistence/session.py:11`、`:36`）。
+persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，核心表覆盖 Agent 定义版本化（`agents`/`agent_versions`）、Prompt 库（`prompts`/`prompt_versions`，与 agents 同型的指针 + 不可变快照）、运行执行记录（`runs`）、可观测双写（`traces`/`trace_events`/`token_usages`/`cost_records`/`export_failures`）、模型中心（`models`/`brain_mappings`）、能力/评测资产（`skills`/`mcp_servers`/`eval_datasets`/`eval_results`）、LangGraph 检查点（`checkpoints`）、审批记录（`approvals`）、知识/记忆（`knowledge_chunks`/`knowledge_sources`/`session_messages`/`session_summaries`/`long_term_memories`）、关联程序日志（`application_logs`）与平台访问控制（`permissions`/`roles`/`role_permissions`/`users`/`user_roles`/`auth_sessions`），共 30 张表；聚合根实体以 `AgentRow`/`PromptRow`/`RunRow`/`TraceRow` 为主，SQLAlchemy 声明基类为 `Base`（`lubanagent/persistence/base.py:6`）。数据库开发期 SQLite、生产 MySQL 8.0+，通过 `Database`/`create_database` 统一异步会话入口（`lubanagent/persistence/session.py:11`、`:36`）。
 
 ## 接口契约
 
@@ -28,7 +28,7 @@ persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，�
 
 ### 仓储层 Python API
 
-以下 11 个 Repository 类经 `lubanagent/persistence/__init__.py:5` 统一导出，均以 `AsyncSession` 构造、方法均为 `async`，返回 `lubanagent.core` 领域对象（含 `EvalRepository` 的 `EvalDataset`/`EvalReport`/`EvalReportSummary`/`EvalReportDetail`、`McpServerRepository` 的 `McpServer` 与 `ApprovalRepository` 的 `ApprovalRequest`，均已领域对象化）。另有两个 Store 实现随包导出（非 Repository 构造型）：`DatabaseMcpServerStore` 与 `DbApprovalStore`（`ApprovalStore` 协议实现，每操作独立短 session，见下表末行）。
+以下 11 个 Repository 类经 `lubanagent/persistence/__init__.py` 统一导出，均以 `AsyncSession` 构造、方法均为 `async`，返回领域对象或安全的 dict 视图（含 `EvalRepository` 的 `EvalDataset`/`EvalReport`/`EvalReportSummary`/`EvalReportDetail`、`McpServerRepository` 的 `McpServer`；`SecurityRepository` 的仓储 dict 视图含 `password_hash`，仅 HTTP 展示层与 login 返回剔除）。`ApprovalRepository` 与 `ApplicationLogRepository` 均不经包根导出，由使用方直接从 `persistence.repositories.approval` / `persistence.repositories.log` 导入。另有两个 Store 实现随包导出（非 Repository 构造型）：`DatabaseMcpServerStore` 与 `DbApprovalStore`（`ApprovalStore` 协议实现，每操作独立短 session，见下表末行）。
 
 | 类 | 方法 | 参数 | 返回 | 说明 |
 |---|---|---|---|---|
@@ -54,6 +54,9 @@ persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，�
 | | `get_run` | `run_id: str` | `Run \| None` | — |
 | | `update_run` | `run: Run` | `None` | 覆盖状态/输出/结束原因/用量/费用/error/时间戳；不存在抛 `RUN_NOT_FOUND` |
 | | `list_runs` | `agent_key: str \| None, *, session_id: str \| None, user_id: str \| None, limit: int = 50` | `list[Run]` | 按 `created_at desc, id desc`；`user_id` 为透传观测标签过滤（引擎不做用户管理） |
+| | `root_run` | `run_id: str` | `Run \| None` | 沿真实 `parent_run_id` 反查根；父子循环抛 `VALIDATION_ERROR` |
+| | `run_tree` | `run_id: str` | `list[Run]` | 递归 CTE 返回根与全部后代，按 `created_at, id` 排序；UNION 消除异常循环 |
+| | `diagnostic_page` | `*, session_id/run_id/trace_id/user_id/status/limit/offset` | `tuple[list[Run], int]` | 诊断列表分页；`trace_id` 通过 `traces.run_id` 子查询映射到 Run；排序同 `list_runs` |
 | | `add_token_usage` | `run_id, step_index, model_key, input_tokens, output_tokens` | `None` | 写 `token_usages` 明细行 |
 | | `add_cost_record` | `run_id, model_key, cost, currency="CNY"` | `None` | 写 `cost_records` 明细行 |
 | | `run_usage` | `run_id: str` | `tuple[int, int, float]` | 该 Run 账本已消费量 `(input_tokens 合计, output_tokens 合计, cost 合计)`（`repositories/run.py:114`）；token 列 NULL（模型未回报）按 0 计入合计。供 resume 以账本实耗量重建 `BudgetGuard`，崩溃续跑不重复放水 |
@@ -88,6 +91,8 @@ persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，�
 | | `list_all` | `*, run_id: str \| None = None` | `list[ApprovalRequest]` | 全部记录含终态（审计回查） |
 | | `try_resolve` | `approval_id, status: Literal["approved","rejected","expired"], *, decided_by: str \| None` | `bool` | 条件更新 `UPDATE ... WHERE status='pending'`（`repositories/approval.py:69-83`）：受影响行数=1 才成功，并发/跨进程双 decide 恰一个成功 |
 | `DbApprovalStore`（`repositories/approval.py:86`，非 Repository 构造型） | 实现 `lubanagent.tool` 的 `ApprovalStore` 协议（`save/get/list_pending/list_all/try_resolve`） | `db: Database` | 同协议 | 每操作独立短 session（同 `TraceWriter` 风格），供 `app/factory.py` 注入 `ApprovalManager(store=DbApprovalStore(db))`；经 `lubanagent.persistence` 导出 |
+| `ApplicationLogRepository`（`repositories/log.py`） | `add_batch` / `list_logs` / `delete_before` | `records: list[dict]`；关联 ID、level、logger、q、时间、limit/offset；`cutoff: datetime` | `None` / `tuple[list[dict], int]` / `int` | 批量插入 `application_logs`；列表按 `created_at desc, id desc` 分页，`q` 匹配 message/exception；`delete_before` 供保留期清理 |
+| `SecurityRepository`（`repositories/security.py`） | `seed/seed_admin/login/user_by_token/revoke_token/revoke_user_sessions/list_users/create_user/update_user/list_roles/create_role/update_role/delete_role/list_permissions` | 参数见方法签名与 security 路由契约 | dict 视图 / token tuple / bool 等 | 幂等播种 10 权限与 4 默认角色；密码用 salted scrypt，token 用随机 opaque bearer 且只落 SHA-256 hash；每次令牌查询重载启用用户，禁用/改密撤销既有会话，角色变化不撤销、经每请求重载实时生效；仅 admin 角色 protected 不可删除且必须全权限，operator/auditor/viewer 可改可删，最后一个启用 admin 不能停用或被移除 admin |
 
 ### 模块级函数：`resolve_prompt_reference`
 
@@ -524,6 +529,30 @@ persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，�
 索引：
 - 主键 `id`；`ix_approvals_run_id (run_id)` 与 `ix_approvals_status (status)`（迁移 `0010` 建立）。
 
+### application_logs
+
+对应实体：`ApplicationLogRow`（`models/log.py`），迁移 `0011_correlated_logs_access_control.py`（revision `a1b2c3d4e5f6`）。程序日志审计表；`id` 为 32 位 hex，正文与 extras 在入队前脱敏。
+
+| 关键列 | 类型 | 非空 | 说明 |
+|---|---|---|---|
+| `id` / `created_at` / `level` / `logger` / `message` / `exception` / `pathname` / `lineno` | String(36) / DateTime(tz) / String(16) / String(255) / Text / Text? / String(1024) / Integer | 除 exception 外均非空 | 日志基础现场；`id` 由写入方生成 |
+| `request_id` / `session_id` / `trace_id` / `subject` | String(128)? | 否 | 可空关联键；`subject` 为已认证主体或登录失败用户名标签 |
+| `run_id` / `parent_run_id` / `root_run_id` | String(64)? | 否 | 子 Run 父子和实际执行根关联键 |
+| `extra` | JSON | ✓（默认 `{}`） | 非标准 LogRecord 属性的脱敏副本 |
+
+索引：主键 `id`；`(session_id,created_at,id)`、`(run_id,created_at,id)`、`(root_run_id,created_at,id)`、`(trace_id,created_at,id)`、`(request_id,created_at,id)`、`created_at`。
+
+### 平台安全表（permissions / roles / role_permissions / users / user_roles / auth_sessions）
+
+对应实体：`PermissionRow`、`RoleRow`、`RolePermissionRow`、`UserRow`、`UserRoleRow`、`AuthSessionRow`（`models/security.py`），迁移 `0011`。
+
+| 表 | 键与关键列 | 语义 |
+|---|---|---|
+| `permissions` | `key` PK、`name` | 10 个内置平台权限 |
+| `roles` / `role_permissions` | role `key` PK、`protected`；`(role_key,permission_key)` PK | admin/operator/auditor/viewer 及自定义角色授权；admin `protected=true` 且必须全量 |
+| `users` / `user_roles` | user `id` PK、`username` unique index、`display_name`、`password_hash`、`enabled`、`bootstrap`；`(user_id,role_key)` PK | 账号只存 salted scrypt hash，不存明文密码；角色多对多 |
+| `auth_sessions` | `token_hash` PK、`user_id` FK/index、`expires_at`、`revoked_at` | 随机 opaque bearer 只存 SHA-256；过期或撤销即拒绝 |
+
 ## 行为
 
 ### 状态机
@@ -591,6 +620,8 @@ finish_run(run)
 - `LubanCheckpointer.aput_writes`/`put_writes` 恒为 no-op（无 writes 表），pending writes 不落库；这是有意的裁剪设计（仅支持单 interrupt 节点的 null-resume），并非缺陷（来源：`persistence/checkpoint.py:76-84`、类注释 `:36-42`）。
 - `ApprovalRepository.try_resolve` 的原子性靠条件更新而非事务锁：`UPDATE approvals SET status=..., decided_by=..., decided_at=now() WHERE id=? AND status='pending'`，受影响行数=1 才返回 True（`repositories/approval.py:69-83`）——并发/跨进程双 decide 恰一个成功，后到者由 `ApprovalManager.decide` 抛 `VALIDATION_ERROR`；审批记录持久化不承诺 Run 自动恢复——普通 Run 已有逐步 checkpoint，但恢复须显式调 resume API（非终态且有 checkpoint 才可续跑），无自动重启恢复，审批闸门语义不随 resume 改变（归属 runtime 层边界）。
 - `Database.session()` 上下文管理器：正常退出自动 `commit()`，抛异常自动 `rollback()` 后重新抛出（来源：`session.py:22-30`），调用方无需手动管理事务边界。
+- **安全表只存不可逆凭证派生值**：密码存随机盐 scrypt 哈希，登录会话存随机 bearer 的 SHA-256；仓储内部 dict 视图含 `password_hash`，仅 HTTP 展示层（public/session 视图与 login 返回）剔除。令牌查询同时校验未撤销、未过期且用户启用；禁用、改密、退出撤销既有会话，角色变更不撤销、经每请求令牌重载实时生效。仅默认 admin 角色受 protected 不可删除且权限不可裁剪，operator/auditor/viewer 可修改或删除，不能移除最后一个启用 admin。
+- **`application_logs` 是异步批次副本，不是业务事务日志**：写入方可先入有界内存队列再批量插入；队列满或批次失败由 `DatabaseLogWriter` 计数，persistence 层不重试也不承诺不丢。
 
 ## 名词
 
@@ -619,10 +650,11 @@ finish_run(run)
 
 | 被影响方 | 触发接口 | 触发内容 |
 |---|---|---|
-| `lubanagent.observability.trace`（`TraceWriter`） | `RunRepository`/`TraceRepository` | 运行全生命周期双写 `runs`/`traces`/`trace_events`/`token_usages`/`cost_records`，作为评测/成本/工作台唯一数据源（架构 §6.1） |
+| `lubanagent.observability.trace`（`TraceWriter`） | `RunRepository`/`TraceRepository` | 运行全生命周期双写 `runs`/`traces`/`trace_events`/`token_usages`/`cost_records`，作为评测/成本/工作台数据源（架构 §6.1） |
+| `lubanagent.observability.logging`（`DatabaseLogWriter`） | `ApplicationLogRepository` | 程序日志有界异步批量落 `application_logs`，按保留期清理 |
 | `lubanagent.observability.cost`（`report.py`） | `CostRepository` | 成本报表按 agent/session/day/model 聚合查询 |
 | `lubanagent.observability.evals`（`runner.py`/`replay.py`） | `EvalRepository` | 评测数据集加载与结果落库（领域模型本体在 `lubanagent.core.evaluation`，本路径为 re-export 垫片）、录制重放 |
-| `lubanagent.api.routes`（`agents.py`/`prompts.py`/`runs.py`/`traces.py`/`models.py`） | `AgentRepository`/`PromptRepository`/`resolve_prompt_reference`/`RunRepository`/`TraceRepository`/`ModelRepository` | REST/SSE 接口的直接数据来源；agents 创建/发版端点落库前经 `resolve_prompt_reference` 解析 Prompt 引用（`api/routes/agents.py:28,59`） |
+| `lubanagent.api.routes`（`agents.py`/`prompts.py`/`runs.py`/`traces.py`/`models.py`/`diagnostics.py`/`security.py`） | `AgentRepository`/`PromptRepository`/`resolve_prompt_reference`/`RunRepository`/`TraceRepository`/`ModelRepository`/`ApplicationLogRepository`/`SecurityRepository` | REST/SSE 接口的直接数据来源；诊断路由读取 Run 树、Trace 与日志，security 路由读写账号/角色/权限并执行登录会话撤销 |
 | `lubanagent.knowledge`（`store.py`/`manager.py`） | 直接 ORM 访问 `KnowledgeChunkRow`/`KnowledgeSourceRow` | 知识切块的增删查与向量检索；工作台托管知识源元数据（knowledge_sources 表）的读写 |
 | `lubanagent.memory`（`session.py`/`summary.py`/`long_term.py`） | 直接 ORM 访问 `SessionMessageRow`/`SessionSummaryRow`/`LongTermMemoryRow` | 会话记忆、摘要压缩、长期记忆读写 |
 | `lubanagent.graph` / `lubanagent.runtime` | `LubanCheckpointer`（直接 ORM 访问 `CheckpointRow`） | LangGraph 状态检查点落库：手写图与多 Agent 编排用 `graph.checkpoint`（re-export 垫片），普通 Agent Run 由 `AgentRuntime(checkpointer=...)` 注入同一实例、在节点边界逐步落 `checkpoints` 表（`thread_id=run-{run_id}`），支撑崩溃后 `stream_resume` 续跑 |

@@ -5,7 +5,7 @@ seed_defaults 幂等 upsert 缺省模型与四槽位映射（luban init 与装�
 
 from lubanagent.config import defaults, get_settings
 from lubanagent.core import BrainProfile, ModelDefinition
-from lubanagent.persistence import Database, ModelRepository
+from lubanagent.persistence import Database, ModelRepository, SecurityRepository
 
 
 async def seed_defaults(db: Database) -> None:
@@ -16,6 +16,8 @@ async def seed_defaults(db: Database) -> None:
     `luban init`（如 dev.sh 重启）都会把真实模型打回 fake-chat。
     """
     env = get_settings().env
+    async with db.session() as session:
+        await SecurityRepository(session).seed()
     async with db.session() as session:
         repo = ModelRepository(session)
         for payload in defaults.SEED_MODEL_DEFINITIONS:

@@ -17,6 +17,7 @@ H12 恢复治理：终态 Run（COMPLETED/FAILED/CANCELLED）拒绝 resume；同
 
 import asyncio
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -41,6 +42,7 @@ from lubanagent.core import (
     TraceEvent,
     TraceEventType,
 )
+from lubanagent.core.log_context import current_log_context, log_context
 from lubanagent.extension import Registry, default_registry
 from lubanagent.observability import TraceWriter
 from lubanagent.persistence import Database, RunRepository
@@ -59,6 +61,7 @@ _STUB_VERSION = 0  # 图 Run 的标记约定：流程无 Agent 版本概念
 _GRAPH_TIMEOUT_SECONDS = 300.0  # 图自建 guard 的默认超时时长
 # H12：可 resume 的只有 WAITING_APPROVAL（含 RUNNING 兜底）；这三个终态一律拒绝续跑
 _TERMINAL_STATUSES = frozenset({RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED})
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -122,11 +125,18 @@ class GraphRunner:
         compiled = flow.builder._compile(hooks=hooks, checkpointer=self._checkpointer)
         config = {"configurable": {"thread_id": thread_id}}
         try:
-            result = await compiled.ainvoke({"data": dict(input)}, config)
+            with log_context(**(await self._correlation(run, parent_ctx))):
+                logger.info("Graph execution started", extra={"flow": flow.name})
+                result = await compiled.ainvoke({"data": dict(input)}, config)
         except BaseException as exc:
             await self._finalize_on_error(run, exc)
             raise
-        return await self._outcome(flow, run, thread_id, result)
+        with log_context(**(await self._correlation(run, parent_ctx))):
+            outcome = await self._outcome(flow, run, thread_id, result)
+            logger.info(
+                "Graph execution finished", extra={"flow": flow.name, "status": outcome.status}
+            )
+            return outcome
 
     async def resume(
         self,
@@ -173,11 +183,37 @@ class GraphRunner:
             hooks = self._hooks(flow, run, parent_ctx=ctx, guard=guard)
             compiled = flow.builder._compile(hooks=hooks, checkpointer=self._checkpointer)
             try:
-                result = await compiled.ainvoke(Command(resume=value), config)
+                with log_context(**(await self._correlation(run, ctx))):
+                    logger.info("Graph execution resumed", extra={"flow": flow.name})
+                    result = await compiled.ainvoke(Command(resume=value), config)
             except BaseException as exc:
                 await self._finalize_on_error(run, exc)
                 raise
-            return await self._outcome(flow, run, thread_id, result)
+            with log_context(**(await self._correlation(run, ctx))):
+                outcome = await self._outcome(flow, run, thread_id, result)
+                logger.info(
+                    "Graph execution finished", extra={"flow": flow.name, "status": outcome.status}
+                )
+                return outcome
+
+    async def _correlation(self, run: Run, parent_ctx: RunContext | None) -> dict[str, Any]:
+        current = current_log_context()
+        root = None
+        if run.parent_run_id:
+            async with self._db.session() as session:
+                root = await RunRepository(session).root_run(run.parent_run_id)
+        return {
+            "run_id": run.id,
+            "trace_id": f"trace-{run.id}",
+            "parent_run_id": run.parent_run_id,
+            "root_run_id": root.id
+            if root
+            else current.get("root_run_id") or run.parent_run_id or run.id,
+            "session_id": (root.session_id if root else None)
+            or current.get("session_id")
+            or (parent_ctx.session_id if parent_ctx else None)
+            or run.session_id,
+        }
 
     def _resume_lock(self, thread_id: str) -> asyncio.Lock:
         """per-thread resume 锁：常驻字典（与 checkpoint 生命周期同界），保证串行不穿崩。"""
@@ -198,9 +234,7 @@ class GraphRunner:
         return candidate if isinstance(candidate, CancellationToken) else None
 
     @staticmethod
-    def _freeze_binding(
-        parent_ctx: RunContext | None, guard: BudgetGuard | None
-    ) -> _ParentBinding:
+    def _freeze_binding(parent_ctx: RunContext | None, guard: BudgetGuard | None) -> _ParentBinding:
         """把本次生效的治理对象冻结为可回接绑定（存对象引用，不复制 → 同一池同一链）。"""
         return _ParentBinding(
             guard=guard,
@@ -361,6 +395,10 @@ class GraphRunner:
         )
 
     async def _finalize_on_error(self, run: Run, exc: BaseException) -> None:
+        with log_context(**(await self._correlation(run, None))):
+            logger.error(
+                "Graph execution failed", extra={"error_type": type(exc).__name__}, exc_info=exc
+            )
         self._parent_bindings.pop(run.session_id, None)  # 终态 → 释放冻结绑定
         # 终态映射复用 D1-4 语义：取消/预算/超时各自落终态 + end_reason
         # asyncio.CancelledError：父 Run 取消 → 事件流关闭连带取消在途图执行，语义即 CANCELLED
@@ -382,9 +420,9 @@ class GraphRunner:
         if isinstance(exc, LubanError):
             error = exc.to_dict()["error"]
         else:
-            error = LubanError(
-                ErrorCode.INTERNAL_ERROR, f"{type(exc).__name__}: {exc}"
-            ).to_dict()["error"]
+            error = LubanError(ErrorCode.INTERNAL_ERROR, f"{type(exc).__name__}: {exc}").to_dict()[
+                "error"
+            ]
         await self._finalize(run, RunStatus.FAILED, EndReason.ERROR, error=error)
 
     async def _finalize(

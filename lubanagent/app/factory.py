@@ -17,9 +17,12 @@ from lubanagent.api import (
     register_error_handlers,
 )
 from lubanagent.api.auth import get_principal
+from lubanagent.api.logging import RequestLogMiddleware
+from lubanagent.api.routes.security import router as security_router
 from lubanagent.avatar import AvatarManager
 from lubanagent.config import Settings, configure_logging, get_settings
 from lubanagent.core import ErrorCode, LubanError
+from lubanagent.core.log_context import log_context
 from lubanagent.extension import Registry, default_registry, discover_packages
 from lubanagent.knowledge import (
     EmbeddingProvider,
@@ -30,7 +33,14 @@ from lubanagent.knowledge import (
 )
 from lubanagent.mcp import McpRegistry
 from lubanagent.observability import SafeBackend, db_failure_sink, resolve_backend
-from lubanagent.persistence import Database, DbApprovalStore, LubanCheckpointer, create_database
+from lubanagent.observability.logging import DatabaseLogWriter
+from lubanagent.persistence import (
+    Database,
+    DbApprovalStore,
+    LubanCheckpointer,
+    SecurityRepository,
+    create_database,
+)
 from lubanagent.runtime import AgentRuntime, RunRequest
 from lubanagent.skill import SkillRegistry
 from lubanagent.tool import ApprovalManager
@@ -77,6 +87,13 @@ def create_app(
 
     # 2. 数据库（迁移不随启动自动跑，走 `luban migrate`）
     db = db if db is not None else create_database(settings)
+    log_writer = (
+        DatabaseLogWriter(
+            db, capacity=settings.log_queue_capacity, retention_days=settings.log_retention_days
+        )
+        if settings.log_database_enabled
+        else None
+    )
 
     # 3. 扩展注册表 + 约定优于配置扫描用户扩展（包不存在记 warning 继续，空脚手架也能起）
     registry = registry if registry is not None else default_registry
@@ -85,6 +102,7 @@ def create_app(
         settings.auth_enabled
         and not settings.api_key
         and registry.get_auth() is None
+        and not settings.auth_database_enabled
     ):
         # R6 风险登记：鉴权配置错误装配期 fail fast——这种组合下每个 /v1/* 请求都会
         # 被默认 AuthProvider 拒绝（CONFIG_ERROR），起服务只会造成"表面起来了但接口全挂"，
@@ -96,7 +114,8 @@ def create_app(
             "修复任选其一：(1) 设置环境变量 API_KEY（配合 AUTH_ENABLED=true）；"
             "(2) 在 Registry 注册自定义 AuthProvider（registry.register_auth，"
             "用户领地经 extension_packages 扫描或 create_app(registry=...) 注入）；"
-            "(3) 关闭鉴权（AUTH_ENABLED=false，仅限开发期零配置场景）。",
+            "(3) 设置 AUTH_DATABASE_ENABLED=true，并用 LUBAN_ADMIN_PASSWORD 初始化管理员；"
+            "(4) 关闭鉴权（AUTH_ENABLED=false，仅限开发期零配置场景）。",
             details={"auth_enabled": True, "api_key": None, "custom_auth_provider": None},
         )
 
@@ -151,46 +170,75 @@ def create_app(
     # 6. 应用与上下文
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        # MCP Server 登记：读 mcp_servers 表 enabled 记录（失败不阻断启动，同种子风格）
-        if mcp_registry is not None:
-            try:
-                await mcp_registry.load_from_db()
-            except Exception:
-                logger.warning("MCP Server 登记失败, 不阻断启动", exc_info=True)
-        # 托管知识源恢复注册（表里有行则注册 connector；失败不阻断启动，同种子风格）
-        try:
-            await knowledge_manager.ensure_restored()
-        except Exception:
-            logger.warning("知识源恢复注册失败, 不阻断启动", exc_info=True)
-        # 用户领地启动钩子（scan 扩展/灌知识源等；on_event 被 lifespan 覆盖故经此调用）
-        if on_startup is not None:
-            await on_startup()
-        # 外部 Watchdog 控制回路（默认关；取消处置经回调绑 runtime.cancel，不 import runtime）
         watchdog_task: asyncio.Task[None] | None = None
-        if settings.watchdog_enabled:
-            watchdog = WatchdogService(
-                db=db,
-                settings=settings,
-                action_handler=CancelHandler(runtime.cancel),
-            )
-            app.state.watchdog = watchdog
-            watchdog_task = asyncio.create_task(watchdog.run_forever())
-            logger.info(
-                "Watchdog 控制回路已启动（interval=%ss）", settings.watchdog_interval_seconds
-            )
-        yield
-        # 关闭：观测外发收尾 + Watchdog 巡检停 + MCP 长连释放 + 连接池
-        if watchdog_task is not None:
-            watchdog_task.cancel()
+        # Startup hooks and background tasks inherit this application's own sink.
+        # Request middleware supplies an isolated context for each HTTP request.
+        with log_context(log_sink=log_writer.enqueue if log_writer else None):
             try:
-                await watchdog_task
-            except asyncio.CancelledError:
-                pass
-        if isinstance(observability, SafeBackend):
-            await observability.drain()
-        if mcp_registry is not None:
-            await mcp_registry.aclose()
-        await db.close()
+                if log_writer is not None:
+                    log_writer.start()
+                if settings.auth_database_enabled:
+                    async with db.session() as session:
+                        security = SecurityRepository(session)
+                        if settings.admin_bootstrap_password:
+                            await security.seed_admin(
+                                username="admin", password=settings.admin_bootstrap_password
+                            )
+                        elif not await security._active_admin_ids():
+                            if not settings.api_key and registry.get_auth() is None:
+                                raise LubanError(
+                                    ErrorCode.CONFIG_ERROR,
+                                    "数据库中没有活跃管理员；首次启动请设置 LUBAN_ADMIN_PASSWORD，"
+                                    "或先通过 API_KEY 创建管理员账号",
+                                )
+                            logger.warning("数据库中没有活跃管理员；请通过 API_KEY 创建账号")
+                # MCP Server 登记失败不阻断启动。
+                if mcp_registry is not None:
+                    try:
+                        await mcp_registry.load_from_db()
+                    except Exception:
+                        logger.warning("MCP Server 登记失败, 不阻断启动", exc_info=True)
+                try:
+                    await knowledge_manager.ensure_restored()
+                except Exception:
+                    logger.warning("知识源恢复注册失败, 不阻断启动", exc_info=True)
+                if on_startup is not None:
+                    await on_startup()
+                if settings.watchdog_enabled:
+                    watchdog = WatchdogService(
+                        db=db,
+                        settings=settings,
+                        action_handler=CancelHandler(runtime.cancel),
+                    )
+                    app.state.watchdog = watchdog
+                    watchdog_task = asyncio.create_task(watchdog.run_forever())
+                    logger.info(
+                        "Watchdog 控制回路已启动（interval=%ss）",
+                        settings.watchdog_interval_seconds,
+                    )
+                yield
+            finally:
+                # Even startup failure or a failed cleanup must release the writer
+                # and DB pool. Shutdown normally waits for an in-flight log batch.
+                try:
+                    if watchdog_task is not None:
+                        watchdog_task.cancel()
+                        try:
+                            await watchdog_task
+                        except asyncio.CancelledError:
+                            pass
+                    try:
+                        if isinstance(observability, SafeBackend):
+                            await observability.drain()
+                    finally:
+                        if mcp_registry is not None:
+                            await mcp_registry.aclose()
+                finally:
+                    try:
+                        if log_writer is not None:
+                            await log_writer.close()
+                    finally:
+                        await db.close()
 
     app = FastAPI(title="LubanAgent", version=__version__, lifespan=lifespan)
     app.state.ctx = AppContext(
@@ -206,6 +254,8 @@ def create_app(
     app.state.knowledge_embedder = knowledge_embedder
     app.state.knowledge_manager = knowledge_manager
     app.state.avatar_manager = avatar_manager
+    app.state.log_writer = log_writer
+    app.add_middleware(RequestLogMiddleware, writer=log_writer)
     register_error_handlers(app)
 
     @app.get("/health")
@@ -213,6 +263,7 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(api_router)
+    app.include_router(security_router)
     for router in extra_routers:
         app.include_router(router, dependencies=[Depends(get_principal)])
 

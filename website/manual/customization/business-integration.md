@@ -25,7 +25,7 @@ GET /v1/runs?agent_key=customer-service-bot&session_id=sess-123&user_id=u-42&lim
 - `session_id`——**会话归组**。同一会话的多轮 Run 用同一个 id 串联，Agent 开了会话/摘要记忆时按它读写历史；不传则每次 Run 独立。
 - `user_id`——**用户排查标签**。业务系统把自己侧的用户 id 传进来，Run/Trace 落库时原样存下，之后可按用户过滤定位问题。
 
-**边界（重要）**：`user_id` 只是透传的观测标签，引擎**不做用户管理、不做鉴权**——权限由你的业务网关负责。框架侧的 API Key 鉴权可插拔、可关，方便你接自己的网关。
+**边界（重要）**：`user_id` 只是透传的观测标签，不是平台账号外键；平台 RBAC 只管 LubanAgent 自身工作台和 `/v1` API 的功能权限，不做业务组织、租户或行级授权。业务侧身份可继续走你的网关，也可用数据库账号、API Key 或自定义 `AuthProvider`。
 
 ## 审批回调怎么接
 

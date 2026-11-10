@@ -13,7 +13,7 @@ LubanAgent 是开源（Apache-2.0）的 ** Agent 起步基座**：Python ≥3.11
 1. **主线 = Agent系统起步基座 + 自带监控**。治理 / 评测 / 成本是"基座成色"，不是主战场——别把它们写成差异化护城河，也别本末倒置。
 2. **代码优先、全源码、无黑盒、无强制 SaaS 依赖**。确定性规则（权限 / 金额 / 审批）由代码执行，不靠 Prompt 声明。
 3. **多 Agent 编排是一等卖点**，与Agent基座不冲突——LangGraph 给引擎，LubanAgent 组装完整工程基座；编排 Run 与单 Agent Run 同库同治理同部署。不要把多 Agent 往"后期扩展 / 可选附属"上靠。
-4. **不做**：在线托管 SaaS、低代码可视化设计器、模型/Prompt/插件商城、通用后台管理（用户/角色/权限）、自建观测/评测平台、具体业务项目（客服是示例非产品）。
+4. **不做**：在线托管 SaaS、低代码可视化设计器、模型/Prompt/插件商城、通用企业后台、租户/部门/行级数据隔离、自建观测/评测平台、具体业务项目（客服是示例非产品）。**例外边界**：工作台平台访问控制（用户、角色、权限、登录会话）是 Agent 基座自身的安全能力；权限是平台级功能开关，不是通用企业后台或多租户治理。
 5. **与主流开源 Agent 框架的关系**：LangGraph/CrewAI/AutoGen/MetaGPT/Dify/n8n/LlamaIndex/OpenAI Agents SDK 分属"底层编排引擎/多 Agent 协作框架/低代码平台/领域专用库"四个不同赛道，LubanAgent 把 LangGraph 当依赖，补的是这些框架普遍缺失的一层：Agent 定义入库版本化、模型工厂、治理层、部署基座。不是再造一个编排框架去抢赛道，别把 LubanAgent 定位混淆成"又一个 CrewAI/Dify"。详细选型对比见 `docs/product-specs/LubanAgent-prd.md` §7。
 
 ## 3. 技术栈与范围
@@ -35,6 +35,8 @@ LubanAgent 是开源（Apache-2.0）的 ** Agent 起步基座**：Python ≥3.11
 - **逻辑大脑**：fast/smart/cheap/vision 四槽位解耦 Agent 与具体模型；切换模型 = 改库映射，不改代码不发版。
 - **一个引擎两种用法**：执行层统一跑在 LangGraph 上——普通 Agent = prebuilt agent + 治理包装（步数/预算/超时/取消/Trace，用户不写图）；确定性流程 = 手写 LangGraph 图；多 Agent 是 LangGraph 之上的 supervisor/子 Agent 委派拓扑。三者共享同一份能力件与治理，编排 Run 是会话 Run 的子 Run（预算继承、取消传播，见技术方案 §10.6）。
 - **监控采用 C 方案**：可插拔 `ObservabilityBackend` Protocol，默认 Langfuse 自部署（保数据主权），可选 LangSmith，可切 none；内部 DB 始终是 source of truth（双写）。不宣传"完全等价切换"。
+- **日志与排查**：`core/log_context` 用 ContextVar 贯穿 request/session/run/trace/parent/root/subject；同步线程继承执行上下文。结构化日志入 `application_logs`，查询、诊断 Run 树、UI 排查页只读真实持久化数据；异步落库失败不阻断业务，但队列满或写入失败可能丢批次，指标必须如实暴露。
+- **平台访问控制**：`AUTH_ENABLED=false` 只能用于本地演示；生产必须 `true`。后端逐请求重载用户、角色与权限并做唯一裁决；UI 菜单和路由 guard 只是体验层。内置 RBAC 服务 LubanAgent 工作台自身，不做部门/租户/行级隔离。
 
 ## 5. 文档规范
 

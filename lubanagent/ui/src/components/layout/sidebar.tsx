@@ -7,6 +7,8 @@ import {
   MessageCircle,
   MessagesSquare,
   Package,
+  SearchCode,
+  ShieldCheck,
   ScrollText,
   Terminal,
   Wrench,
@@ -15,24 +17,28 @@ import type { ComponentType } from 'react';
 import { NavLink } from 'react-router-dom';
 
 import { useAgents } from '@/api/hooks';
+import { usePermissions } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
   to: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
+  permission: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/agents', label: 'Agents', icon: Bot },
-  { to: '/prompts', label: 'Prompt 库', icon: FileText },
-  { to: '/models', label: '模型', icon: Gauge },
-  { to: '/tools', label: '工具', icon: Wrench },
-  { to: '/skills', label: 'Skills', icon: Package },
-  { to: '/knowledge', label: '知识库', icon: BookOpen },
-  { to: '/graphs', label: '流程图', icon: GitBranch },
-  { to: '/traces', label: 'Traces', icon: ScrollText },
-  { to: '/evals', label: '评测', icon: MessagesSquare },
+  { to: '/agents', label: 'Agents', icon: Bot, permission: 'config:read' },
+  { to: '/prompts', label: 'Prompt 库', icon: FileText, permission: 'config:read' },
+  { to: '/models', label: '模型', icon: Gauge, permission: 'config:read' },
+  { to: '/tools', label: '工具', icon: Wrench, permission: 'config:read' },
+  { to: '/skills', label: 'Skills', icon: Package, permission: 'config:read' },
+  { to: '/knowledge', label: '知识库', icon: BookOpen, permission: 'config:read' },
+  { to: '/graphs', label: '流程图', icon: GitBranch, permission: 'config:read' },
+  { to: '/traces', label: 'Traces', icon: ScrollText, permission: 'run:read' },
+  { to: '/diagnostics', label: '日志排查', icon: SearchCode, permission: 'diagnostics:read' },
+  { to: '/evals', label: '评测', icon: MessagesSquare, permission: 'eval:read' },
+  { to: '/security', label: '用户权限', icon: ShieldCheck, permission: 'security:manage' },
 ];
 
 function navLinkClass({ isActive }: { isActive: boolean }) {
@@ -47,7 +53,9 @@ function navLinkClass({ isActive }: { isActive: boolean }) {
 export function Sidebar() {
   // 调试台入口指向第一个 Agent；无 Agent 时落到列表页引导新建
   const { data: agents } = useAgents();
+  const { can } = usePermissions();
   const debugTarget = agents?.length ? `/agents/${agents[0].key}/debug` : '/agents';
+  const navItems = NAV_ITEMS.filter((item) => can(item.permission));
 
   return (
     <aside className="flex w-52 shrink-0 flex-col border-r bg-card/50">
@@ -56,16 +64,18 @@ export function Sidebar() {
         <span className="text-lg font-semibold tracking-tight">LubanAgent</span>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-2">
-        <NavLink to={debugTarget} className={navLinkClass} end={false}>
-          <MessagesSquare className="h-4 w-4" />
-          调试台
-        </NavLink>
+        {can('run:execute') && (
+          <NavLink to={debugTarget} className={navLinkClass} end={false}>
+            <MessagesSquare className="h-4 w-4" />
+            调试台
+          </NavLink>
+        )}
         {/* /chat 是并列路由（不在 AppShell 内）：点击即离开布局壳进全屏聊天 */}
         <NavLink to="/chat" className={navLinkClass} end>
           <MessageCircle className="h-4 w-4" />
           用户端聊天
         </NavLink>
-        {NAV_ITEMS.map((item) => (
+        {navItems.map((item) => (
           <NavLink key={item.to} to={item.to} className={navLinkClass} end={item.to === '/agents'}>
             <item.icon className="h-4 w-4" />
             {item.label}

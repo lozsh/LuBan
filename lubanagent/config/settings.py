@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # 日志
     log_level: str = "INFO"  # LOG_LEVEL
     log_format: Literal["console", "json"] = "console"  # LOG_FORMAT
+    log_database_enabled: bool = True  # LOG_DATABASE_ENABLED
+    log_queue_capacity: int = Field(default=10000, ge=100, le=100000)  # LOG_QUEUE_CAPACITY
+    log_retention_days: int = Field(default=30, ge=1, le=3650)  # LOG_RETENTION_DAYS
     # 数据库（async 驱动 URL）
     database_url: str = DEFAULT_SQLITE_URL  # DATABASE_URL
     # 观测（C 方案）：内置 langfuse/langsmith/none；用户注册的后端名也可经 env 选址（架构 §6.4）
@@ -33,6 +36,11 @@ class Settings(BaseSettings):
     # 接入鉴权（F8）
     auth_enabled: bool = True  # AUTH_ENABLED
     api_key: str | None = None  # API_KEY（框架默认 AuthProvider 用）
+    auth_database_enabled: bool = False  # AUTH_DATABASE_ENABLED（可无 API_KEY，仅数据库账号）
+    auth_session_hours: int = Field(default=8, ge=1, le=168)  # AUTH_SESSION_HOURS
+    admin_bootstrap_password: str | None = Field(
+        default=None, validation_alias="LUBAN_ADMIN_PASSWORD", min_length=12, max_length=256
+    )
     rate_limit_per_minute: int = 600  # RATE_LIMIT_PER_MINUTE
     # 业务接入
     biz_base_url: str | None = None  # BIZ_BASE_URL

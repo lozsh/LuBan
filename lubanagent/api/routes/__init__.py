@@ -7,6 +7,7 @@ from lubanagent.api.routes import (
     agents,
     approvals,
     avatars,
+    diagnostics,
     evals,
     graphs,
     knowledge,
@@ -33,5 +34,6 @@ api_router.include_router(watchdog.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(graphs.router)
 api_router.include_router(avatars.router)
+api_router.include_router(diagnostics.router)
 
 __all__ = ["api_router"]
