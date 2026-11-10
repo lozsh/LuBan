@@ -54,7 +54,9 @@ class DatabaseLogWriter:
         self.write_failures = 0
         self._task: asyncio.Task[None] | None = None
         self._retention_days = retention_days
-        self._last_cleanup = 0.0
+        # None means never cleaned; monotonic() may start below one hour on CI
+        # or even at zero. A numeric sentinel must not delay the first cleanup.
+        self._last_cleanup: float | None = None
         self._closed = False
         self._stop = asyncio.Event()
 
@@ -184,7 +186,7 @@ class DatabaseLogWriter:
                     # silently pretend that the entire batch was durably stored.
                     self._record_drop(len(batch), write_failure=True)
                     raise
-            if time.monotonic() - self._last_cleanup >= 3600:
+            if self._last_cleanup is None or time.monotonic() - self._last_cleanup >= 3600:
                 try:
                     with log_context(persist_logs=False):
                         async with self.db.session() as session:

@@ -29,7 +29,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 | `__init__` | `(db: Database, *, capacity: int = 10000, retention_days: int = 30)` | 创建每应用独立 sink、有界队列与失败计数 | 队列容量和保留期来自 `Settings` |
 | `enqueue(record: logging.LogRecord) -> None` | `CorrelationFilter` 同步调用 | 深拷贝 extras、脱敏并截断文本（message/exception UTF-8 上限 32 KiB，extras 序列化上限 16 KiB，超限替换为 truncated 标记与 4 KiB 预览），构造含关联键的 dict 后 `put_nowait`；忽略 SQLAlchemy/aiosqlite DEBUG 记录 | 队列满只增加 `dropped_count`，不阻塞调用方 |
 | `start() / close()` | 异步后台 flush / 先停止接收并等待 in-flight 批次提交，再 flush 剩余队列 | `create_app` lifespan 启动与关闭时调用；`close()` 后不再接收新日志 | 关闭前 flush 完剩余队列，进程崩溃仍可能丢未写批次 |
-| `flush()` | 每次取队列快照后连续写多批，每批最多 200 条，`log_context(persist_logs=False)` 内写库；每小时清理过期记录 | 失败写 stderr 类型名并累计 `write_failures` 与批次丢失数，不递归 logger | 后台每 0.25 秒触发一次 flush；`GET /v1/logs` 和诊断详情先显式 flush |
+| `flush()` | 每次取队列快照后连续写多批，每批最多 200 条，`log_context(persist_logs=False)` 内写库；首次 flush 即清理过期记录，成功后每 3600 秒清理，失败保留旧清理时间并在下次 flush 重试 | 失败写 stderr 类型名并累计 `write_failures` 与批次丢失数，不递归 logger | 后台每 0.25 秒触发一次 flush；`GET /v1/logs` 和诊断详情先显式 flush |
 
 ### RPC / MQ / Cron
 
