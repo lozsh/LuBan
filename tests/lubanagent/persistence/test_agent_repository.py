@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lubanagent.core import AgentDefinition, AgentStatus, ErrorCode, LubanError
+from lubanagent.persistence import Database
 from lubanagent.persistence.models import AgentVersionRow
 from lubanagent.persistence.repositories import AgentRepository
 
@@ -84,3 +85,55 @@ async def test_update_status(session: AsyncSession) -> None:
     await repo.update_status("demo", AgentStatus.PUBLISHED)
     loaded = await repo.get_agent("demo")
     assert loaded is not None and loaded.status == AgentStatus.PUBLISHED
+
+
+async def test_avatar_display_is_persisted_in_independent_versions(db: Database) -> None:
+    visible = AgentDefinition(key="demo", name="Demo", avatar="avatar.svg")
+    async with db.session() as session:
+        repo = AgentRepository(session)
+        await repo.create_agent(visible)
+        await repo.create_version(
+            "demo", visible.model_copy(update={"version": 2, "show_avatar": False})
+        )
+
+    # 重新打开连接，验证显示设置是库内状态，不是进程内草稿。
+    async with db.session() as session:
+        repo = AgentRepository(session)
+        hidden = await repo.get_agent("demo")
+        assert hidden is not None and hidden.show_avatar is False
+        assert hidden.avatar == "avatar.svg"
+        await repo.create_version(
+            "demo", hidden.model_copy(update={"version": 3, "show_avatar": True})
+        )
+
+    async with db.session() as session:
+        repo = AgentRepository(session)
+        current = await repo.get_agent("demo")
+        assert current is not None and current.show_avatar is True
+        snapshots = [await repo.get_version("demo", version) for version in (1, 2, 3)]
+        assert all(snapshot is not None for snapshot in snapshots)
+        assert [snapshot.definition.show_avatar for snapshot in snapshots] == [
+            True, False, True
+        ]
+        assert all(snapshot.definition.avatar == "avatar.svg" for snapshot in snapshots)
+        rows = (await session.scalars(select(AgentVersionRow))).all()
+        assert [row.definition["show_avatar"] for row in rows] == [True, False, True]
+
+
+async def test_legacy_avatar_snapshot_default_does_not_rewrite_json(
+    session: AsyncSession,
+) -> None:
+    repo = AgentRepository(session)
+    await repo.create_agent(AgentDefinition(key="demo", name="Demo", avatar="avatar.svg"))
+    row = await session.scalar(select(AgentVersionRow))
+    assert row is not None
+    legacy_json = {key: value for key, value in row.definition.items() if key != "show_avatar"}
+    row.definition = legacy_json
+    await session.flush()
+
+    current = await repo.get_agent("demo")
+    snapshot = await repo.get_version("demo", 1)
+    assert current is not None and current.show_avatar is True
+    assert snapshot is not None and snapshot.definition.show_avatar is True
+    assert row.definition == legacy_json
+    assert "show_avatar" not in row.definition

@@ -95,6 +95,9 @@ data: {"run_id": "r-abc123", "type": "run_completed", "end_reason": "final_answe
 | `CAPABILITY_MISMATCH` | 422 | 模型能力不满足 Agent 要求 |
 | `NO_FALLBACK_AVAILABLE` | 422 | 无可用降级模型 |
 | `BRAIN_NOT_MAPPED` | 422 | 大脑槽位未绑定模型 |
+| `BRAIN_PROFILE_NOT_FOUND` | 404 | 槽位未登记或已删除 |
+| `BRAIN_PROFILE_CONFLICT` | 409 | 新增/改名标识与当前 key 或历史 alias 冲突 |
+| `BRAIN_PROFILE_IN_USE` | 409 | Agent 历史版本仍使用槽位，details 返回 Agent/版本/字段，目录/映射不变 |
 | `GRAPH_STRUCTURE_UNAVAILABLE` | 422 | 图 builder 非 DSL 构建器，无结构视图 |
 | `CONFIG_ERROR` | 500 | 配置错误（如鉴权开启但未配 Key、管理器未装配） |
 | `INTERNAL_ERROR` | 500 | 服务器内部错误（堆栈只进日志，不进响应） |

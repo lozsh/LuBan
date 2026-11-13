@@ -187,6 +187,6 @@ TeamRunner.run(team, user_input, thread_id, parent_ctx)
 
 | 被影响方 | 触发接口 | 触发内容 |
 |---|---|---|
-| `lubanagent/runtime` → `lubanagent/model` | `AgentRuntime.run()` 内部模型调用 | 每轮 supervisor 决策、每次成员委派最终都会触发一次真实/fake 模型调用（经四槽位大脑映射解析），消耗计入共享 `BudgetGuard`（来源：`supervisor.py:108-120`、`tests/lubanagent/multiagent/conftest.py:151-195`） |
+| `lubanagent/runtime` → `lubanagent/model` | `AgentRuntime.run()` 内部模型调用 | 每轮 supervisor 决策、每次成员委派最终都会触发一次真实/fake 模型调用（经动态大脑槽位映射解析），消耗计入共享 `BudgetGuard`（来源：`supervisor.py:108-120`、`tests/lubanagent/multiagent/conftest.py:151-195`） |
 | `lubanagent/observability`（Trace） | `TraceWriter.emit/start_run/finish_run`（经 `GraphRunner` 间接触发） | 编排 Run 的每次节点流转（`STEP_STARTED`/`STEP_COMPLETED`）与终态收尾写入 Trace，供整体回放（来源：`lubanagent/graph/runner.py:323-342`，本模块自身不直接写 Trace，经 `GraphRunner` 代劳） |
 | `app/api/teams.py`（用户领地路由） | `POST /v1/teams/cs-team/runs` → `TeamRunner(db=ctx.db, runtime=ctx.runtime, registry=ctx.registry).run(team, ...)` | 用户领地把 `TeamRunner` 包装为 HTTP 触发入口，是本模块面向业务系统的实际暴露方式（框架本身不内置该路由）（来源：`app/api/teams.py:40-52`） |

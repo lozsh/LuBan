@@ -26,6 +26,7 @@ _TOP_LEVEL_KEYS = {
     "instruction",
     "greeting",
     "avatar",
+    "show_avatar",
     "brain",
     "fallbacks",
     "tools",
@@ -63,10 +64,10 @@ def _check_unknown(data: dict[str, Any], allowed: set[str], *, prefix: str = "")
 def _parse_brain(value: Any, *, field: str) -> BrainProfile:
     try:
         return BrainProfile(value)
-    except ValueError:
-        valid = [profile.value for profile in BrainProfile]
+    except (ValueError, TypeError):
         raise _error(
-            f"非法 brain 槽位: {value!r}（{field}），可选: {valid}",
+            f"非法 brain 槽位标识（{field}）：须以小写字母开头，"
+            "只含小写字母、数字、-、_，最多64字符",
             details={"field": field, "value": value},
         ) from None
 
@@ -156,7 +157,7 @@ def _parse_io(value: Any) -> IOContract:
             contract.output_schema = output
         else:
             raise _error(
-                f"非法 io_contract.output: {output!r}（\"text\" 或 schema 映射）",
+                f'非法 io_contract.output: {output!r}（"text" 或 schema 映射）',
                 details={"field": "io_contract.output", "value": output},
             )
     return contract
@@ -202,6 +203,11 @@ def definition_from_yaml(data: dict[str, Any]) -> AgentDefinition:
         if not isinstance(avatar, str):
             raise _error("avatar 必须是字符串（落盘文件名）", details={"field": "avatar"})
         definition.avatar = avatar
+    if "show_avatar" in data:
+        show_avatar = data["show_avatar"]
+        if not isinstance(show_avatar, bool):
+            raise _error("show_avatar 必须是布尔值", details={"field": "show_avatar"})
+        definition.show_avatar = show_avatar
     if "brain" in data:
         definition.brain.profile = _parse_brain(data["brain"], field="brain")
     if "fallbacks" in data:
@@ -279,6 +285,8 @@ def definition_to_yaml(definition: AgentDefinition) -> dict[str, Any]:
         data["greeting"] = definition.greeting
     if definition.avatar:
         data["avatar"] = definition.avatar
+    if not definition.show_avatar:
+        data["show_avatar"] = False
     data["instruction"] = definition.instructions
     data["brain"] = definition.brain.profile.value
     if definition.brain.fallback_profiles:
@@ -293,9 +301,7 @@ def definition_to_yaml(definition: AgentDefinition) -> dict[str, Any]:
         data["knowledge"] = _knowledge_to_yaml(definition.knowledge)
     data["memory"] = _memory_to_yaml(definition.memory)
     data["limits"] = _limits_to_yaml(definition.boundary)
-    output: Any = (
-        definition.io.output_schema if definition.io.output_schema is not None else "text"
-    )
+    output: Any = definition.io.output_schema if definition.io.output_schema is not None else "text"
     data["io_contract"] = {"input": definition.io.input_type, "output": output}
     return data
 
@@ -317,6 +323,4 @@ def load_yaml_file(path: Path) -> dict[str, Any]:
 
 def dump_yaml_file(data: dict[str, Any], path: Path) -> None:
     """safe_dump 落盘（allow_unicode、保持键序）。"""
-    path.write_text(
-        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")

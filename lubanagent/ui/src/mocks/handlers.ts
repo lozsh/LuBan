@@ -15,6 +15,7 @@ import {
   agents,
   approvals,
   brainMappings,
+  brainProfiles,
   adminUser,
   devUser,
   diagnosticChildRun,
@@ -160,6 +161,60 @@ function sessionFor(request: Request): SessionUser | null {
   // 本地开发（AUTH_ENABLED=false）默认授出全部权限；前端不自行推断这个状态。
   return devUser;
 }
+
+function slotReferences(slot: components['schemas']['BrainProfileOut']) {
+  const keys = [slot.key, ...slot.aliases];
+  const histories = { ...agentVersions };
+  for (const agent of agents) {
+    if (histories[agent.key]?.some((version) => version.version === agent.version)) continue;
+    histories[agent.key] = [
+      ...(histories[agent.key] ?? []),
+      {
+        agent_key: agent.key,
+        version: agent.version,
+        status: agent.status,
+        published_at: null,
+        definition: agent,
+      },
+    ];
+  }
+  return Object.entries(histories).flatMap(([agentKey, versions]) =>
+    versions.flatMap((version) => {
+      const definition = version.definition;
+      const fields: string[] = [];
+      if (keys.includes(definition.brain?.profile ?? 'smart')) fields.push('brain.profile');
+      if (definition.brain?.fallback_profiles?.some((key) => keys.includes(key)))
+        fields.push('brain.fallback_profiles');
+      if (keys.includes('cheap') && definition.memory?.summary) fields.push('memory.summary');
+      return fields.map((field) => ({
+        agent_key: agentKey,
+        agent_name: definition.name,
+        version: version.version,
+        current: agents.find((agent) => agent.key === agentKey)?.version === version.version,
+        field,
+      }));
+    }),
+  );
+}
+
+function slotOut(slot: components['schemas']['BrainProfileOut']) {
+  const references = slotReferences(slot);
+  return {
+    ...slot,
+    reference_count: references.length,
+    agent_count: new Set(references.map((ref) => ref.agent_key)).size,
+  };
+}
+
+function configWriteDenied(request: Request) {
+  const permissions = sessionFor(request)?.permissions ?? [];
+  return permissions.includes('*') || permissions.includes('config:write')
+    ? null
+    : errorOut(403, 'PERMISSION_DENIED', '缺少权限: config:write');
+}
+
+// mock 也保留已删除标识，避免演示中换槽位身份；单测局部 handler 不改共享目录。
+const deletedBrainProfiles = new Map<string, components['schemas']['BrainProfileOut']>();
 
 export const handlers = [
   http.get('*/health', () => HttpResponse.json({ status: 'ok' })),
@@ -321,6 +376,123 @@ export const handlers = [
   }),
 
   // ---- 模型中心 ----
+  http.get('*/v1/brain-profiles', () =>
+    HttpResponse.json({ env: 'dev', items: brainProfiles.map(slotOut) }),
+  ),
+
+  http.post('*/v1/brain-profiles', async ({ request }) => {
+    const denied = configWriteDenied(request);
+    if (denied) return denied;
+    const body = (await request.json()) as components['schemas']['BrainProfileCreate'];
+    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(body.key) || !body.name.trim())
+      return errorOut(422, 'VALIDATION_ERROR', '名称或标识不合法');
+    if (brainProfiles.some((slot) => slot.key === body.key || slot.aliases.includes(body.key)))
+      return errorOut(409, 'BRAIN_PROFILE_CONFLICT', '槽位标识已存在');
+    if (body.model_key && !models.some((model) => model.key === body.model_key))
+      return errorOut(404, 'MODEL_NOT_FOUND', '模型不存在');
+    const slot = {
+      ...deletedBrainProfiles.get(body.key),
+      key: body.key,
+      name: body.name.trim(),
+      description: body.description ?? '',
+      aliases: deletedBrainProfiles.get(body.key)?.aliases ?? [],
+      reference_count: 0,
+      agent_count: 0,
+    };
+    brainProfiles.push(slot);
+    deletedBrainProfiles.delete(body.key);
+    if (body.model_key)
+      brainMappings.push({ env: body.env ?? 'dev', profile: body.key, model_key: body.model_key });
+    return HttpResponse.json(slotOut(slot), { status: 201 });
+  }),
+
+  http.patch('*/v1/brain-profiles/:key', async ({ params, request }) => {
+    const denied = configWriteDenied(request);
+    if (denied) return denied;
+    const slot = brainProfiles.find(
+      (item) => item.key === params.key || item.aliases.includes(String(params.key)),
+    );
+    if (!slot) return errorOut(404, 'BRAIN_PROFILE_NOT_FOUND', '槽位不存在');
+    const body = (await request.json()) as components['schemas']['BrainProfilePatch'];
+    if (
+      (body.key && !/^[a-z][a-z0-9_-]{0,63}$/.test(body.key)) ||
+      (body.name !== undefined && !body.name?.trim())
+    )
+      return errorOut(422, 'VALIDATION_ERROR', '名称或标识不合法');
+    if (
+      body.key &&
+      brainProfiles.some(
+        (other) => other !== slot && (other.key === body.key || other.aliases.includes(body.key!)),
+      )
+    )
+      return errorOut(409, 'BRAIN_PROFILE_CONFLICT', '槽位标识已存在');
+    if (body.model_key && !models.some((model) => model.key === body.model_key))
+      return errorOut(404, 'MODEL_NOT_FOUND', '模型不存在');
+    if (body.key && body.key !== slot.key) {
+      const oldKey = slot.key;
+      slot.aliases = [...new Set([...slot.aliases.filter((key) => key !== body.key), oldKey])];
+      slot.key = body.key;
+      for (const mapping of brainMappings)
+        if (mapping.profile === oldKey) mapping.profile = slot.key;
+    }
+    if (body.name) slot.name = body.name.trim();
+    if (body.description !== undefined && body.description !== null)
+      slot.description = body.description.trim();
+    if (body.model_key) {
+      const env = body.env ?? 'dev';
+      const existing = brainMappings.find(
+        (mapping) => mapping.env === env && mapping.profile === slot.key,
+      );
+      if (existing) existing.model_key = body.model_key;
+      else brainMappings.push({ env, profile: slot.key, model_key: body.model_key });
+    }
+    return HttpResponse.json(slotOut(slot));
+  }),
+
+  http.delete('*/v1/brain-profiles/:key', ({ params, request }) => {
+    const denied = configWriteDenied(request);
+    if (denied) return denied;
+    const slot = brainProfiles.find(
+      (item) => item.key === params.key || item.aliases.includes(String(params.key)),
+    );
+    if (!slot) return errorOut(404, 'BRAIN_PROFILE_NOT_FOUND', '槽位不存在');
+    const references = slotReferences(slot);
+    if (references.length)
+      return HttpResponse.json(
+        {
+          error: {
+            code: 'BRAIN_PROFILE_IN_USE',
+            message: '槽位正被 Agent 使用，不能删除',
+            details: { profile: slot.key, references },
+          },
+        },
+        { status: 409 },
+      );
+    brainProfiles.splice(brainProfiles.indexOf(slot), 1);
+    deletedBrainProfiles.set(slot.key, slot);
+    for (let index = brainMappings.length - 1; index >= 0; index--)
+      if (brainMappings[index].profile === slot.key) brainMappings.splice(index, 1);
+    return HttpResponse.json({ removed: true });
+  }),
+
+  http.get('*/v1/brain-mappings', ({ request }) => {
+    const env = new URL(request.url).searchParams.get('env') ?? 'dev';
+    return HttpResponse.json(brainMappings.filter((mapping) => mapping.env === env));
+  }),
+
+  http.get('*/v1/brain-profiles/:key/references', ({ params }) => {
+    const slot = brainProfiles.find(
+      (item) => item.key === params.key || item.aliases.includes(String(params.key)),
+    );
+    if (!slot) return errorOut(404, 'BRAIN_PROFILE_NOT_FOUND', '槽位不存在');
+    const references = slotReferences(slot);
+    return HttpResponse.json({
+      key: slot.key,
+      agent_count: new Set(references.map((ref) => ref.agent_key)).size,
+      references,
+    });
+  }),
+
   http.get('*/v1/models', () => HttpResponse.json(models)),
 
   http.put('*/v1/models', async ({ request }) => {

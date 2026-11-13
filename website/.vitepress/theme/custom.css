@@ -178,6 +178,92 @@
   border-radius: 8px;
 }
 
+/* 起源先于功能卡片：一段可阅读的工程背景，而不是另一组卖点卡片。 */
+.home-origin {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr);
+  gap: 48px;
+  max-width: 1152px;
+  margin: 16px auto 48px;
+  padding: 32px 0;
+  border-top: 1px solid var(--vp-c-divider);
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.home-origin-eyebrow {
+  margin-bottom: 12px;
+  color: var(--vp-c-brand-1);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.home-origin h2 {
+  font-size: clamp(23px, 2.2vw, 30px);
+  font-weight: 650;
+  line-height: 1.5;
+  letter-spacing: -0.02em;
+}
+
+.home-origin-story p {
+  margin-bottom: 16px;
+  color: var(--vp-c-text-2);
+  font-size: 16px;
+  line-height: 1.85;
+}
+
+.home-origin-story a,
+.docs-use-notice a {
+  color: var(--vp-c-brand-1);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.home-use-notice {
+  max-width: 1152px;
+  margin: 32px auto 0;
+}
+
+.docs-use-notice {
+  margin-bottom: 28px;
+  padding: 12px 16px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  color: var(--vp-c-text-2);
+  background: var(--vp-c-bg-soft);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.docs-use-notice summary {
+  cursor: pointer;
+}
+
+.docs-use-notice p {
+  margin: 12px 0;
+}
+
+@media (max-width: 1279px) {
+  .home-origin,
+  .home-use-notice {
+    margin-right: 32px;
+    margin-left: 32px;
+  }
+}
+
+@media (max-width: 767px) {
+  .home-origin {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+    padding: 24px 0;
+  }
+
+  .home-origin,
+  .home-use-notice {
+    margin-right: 24px;
+    margin-left: 24px;
+  }
+}
+
 /* 特性卡片：统一线宽与颜色，不使用系统 emoji。 */
 .VPFeature {
   border-radius: 10px;
@@ -228,6 +314,22 @@
 
 .vp-doc div[class*="language-"] {
   border-radius: 10px;
+}
+
+/* 行尾解释另起视觉行；vp-copy-ignore 由 VitePress 原生复制按钮忽略。 */
+.vp-doc .docs-inline-comment {
+  display: block;
+  margin-top: 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--vp-c-divider);
+  font-family: var(--vp-font-family-base);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: normal;
+}
+
+.vp-doc .docs-code-comment {
+  color: var(--vp-c-text-3);
 }
 
 /* ---------- 代码块：macOS 窗口风格 + 长代码自动折叠 ---------- */

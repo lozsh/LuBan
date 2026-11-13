@@ -8,7 +8,7 @@ import { Play } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { API_BASE } from '@/api/client';
-import { useAgents, useRun, type BrainProfile, type Run } from '@/api/hooks';
+import { useAgents, useBrainProfiles, useRun, type BrainProfile, type Run } from '@/api/hooks';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,8 +22,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { durationBetween, formatDurationMs } from '@/lib/format';
 import { useRunStream, type RunStream, type SseEvent } from '@/lib/sse';
-
-const PROFILES: BrainProfile[] = ['fast', 'smart', 'cheap', 'vision'];
+import { brainProfileOptions, defaultBrainProfile } from '@/pages/agents/lib/agent-form';
 
 const STREAM_STATUS_TEXT: Record<RunStream['status'], string> = {
   idle: '待开始',
@@ -125,10 +124,16 @@ function ComparePanel({
 
 export default function ModelComparePage() {
   const agentsQuery = useAgents();
+  const profilesQuery = useBrainProfiles();
+  const slots = profilesQuery.data?.items ?? [];
   const [agentKey, setAgentKey] = useState('');
   const [input, setInput] = useState('');
-  const [labelA, setLabelA] = useState<BrainProfile>('smart');
-  const [labelB, setLabelB] = useState<BrainProfile>('fast');
+  const [labelA, setLabelA] = useState<BrainProfile>('');
+  const [labelB, setLabelB] = useState<BrainProfile>('');
+  const selectedA = slots.some((slot) => slot.key === labelA) ? labelA : defaultBrainProfile(slots);
+  const selectedB = slots.some((slot) => slot.key === labelB)
+    ? labelB
+    : (slots.find((slot) => slot.key !== selectedA)?.key ?? selectedA);
 
   const streamA = useRunStream();
   const streamB = useRunStream();
@@ -184,14 +189,14 @@ export default function ModelComparePage() {
         </div>
         <div className="space-y-1.5">
           <p className="text-xs font-medium text-muted-foreground">配置标签 A</p>
-          <Select value={labelA} onValueChange={(value) => setLabelA(value as BrainProfile)}>
+          <Select value={selectedA} onValueChange={setLabelA}>
             <SelectTrigger aria-label="配置标签 A" className="font-mono text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PROFILES.map((profile) => (
-                <SelectItem key={profile} value={profile} className="font-mono text-xs">
-                  {profile}
+              {brainProfileOptions(slots).map((profile) => (
+                <SelectItem key={profile.key} value={profile.key} className="text-xs">
+                  {profile.label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -199,14 +204,14 @@ export default function ModelComparePage() {
         </div>
         <div className="space-y-1.5">
           <p className="text-xs font-medium text-muted-foreground">配置标签 B</p>
-          <Select value={labelB} onValueChange={(value) => setLabelB(value as BrainProfile)}>
+          <Select value={selectedB} onValueChange={setLabelB}>
             <SelectTrigger aria-label="配置标签 B" className="font-mono text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PROFILES.map((profile) => (
-                <SelectItem key={profile} value={profile} className="font-mono text-xs">
-                  {profile}
+              {brainProfileOptions(slots).map((profile) => (
+                <SelectItem key={profile.key} value={profile.key} className="text-xs">
+                  {profile.label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -233,8 +238,8 @@ export default function ModelComparePage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <ComparePanel label={labelA} stream={streamA} run={runA.data} />
-        <ComparePanel label={labelB} stream={streamB} run={runB.data} />
+        <ComparePanel label={selectedA} stream={streamA} run={runA.data} />
+        <ComparePanel label={selectedB} stream={streamB} run={runB.data} />
       </div>
     </div>
   );

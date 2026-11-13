@@ -29,10 +29,10 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 | GET | `/v1/agents` | 列出全部 Agent 定义 | 无特殊错误（空库返回空列表） |
 | POST | `/v1/agents` | 创建 Agent（201），请求体 `AgentDefinition`；落库前先经 `resolve_prompt_reference` 解析 Prompt 库引用（`prompt_key` 非空时把 Prompt 内容写入 `instructions` 落进快照，见下方 prompts.py 节；`prompt_key` 为 `None` 走纯内嵌存量路径，行为不变） | key 已存在 → 409 `conflict_response`（VALIDATION_ERROR 语义）；引用的 prompt 不存在 → 404 `PROMPT_NOT_FOUND`；钉住的 prompt 版本不存在 → 404 `PROMPT_VERSION_NOT_FOUND`（来源：`agents.py:28`） |
 | GET | `/v1/agents/{key}` | 查询单个 Agent 当前定义 | key 不存在 → `LubanError(AGENT_NOT_FOUND)` → 404 |
-| POST | `/v1/agents/{key}/versions` | 追加不可变版本快照（201），请求体 `AgentDefinition`；落库前同样经 `resolve_prompt_reference` 解析（来源：`agents.py:59`）——**整份定义回传（含旧 `prompt_version`）会钉住旧版 Prompt 内容**，要吃 Prompt 当前版须显式传 `prompt_version: null` | key 不存在 → 404 `AGENT_NOT_FOUND`；该 version 已存在 → 409 `conflict_response`（版本不可覆盖）；prompt/版本不存在 → 404 `PROMPT_NOT_FOUND`/`PROMPT_VERSION_NOT_FOUND` |
-| GET | `/v1/agents/{key}/versions/{version}` | 查询指定版本快照 | 版本不存在时区分：Agent 本身不存在 → 404 `AGENT_NOT_FOUND`；Agent 存在但该版本不存在 → 404 `AGENT_VERSION_NOT_FOUND`（来源：`agents.py:61-76` 二次查询判定） |
-| PUT | `/v1/agents/{key}/avatar` | 上传虚拟形象（multipart 字段 `file`，svg/png/glb/gltf，≤ 20MB）；**上传即版本**——服务端复制当前定义设 `avatar` 字段、追加新版本（照 Prompt 分配先例），返回新 `AgentDefinition`；文件落盘 `avatar_files_root/{key}/avatar.{ext}`（换类型自动清旧扩展名文件） | Agent 不存在 → 404 `AGENT_NOT_FOUND`；坏后缀/超限 → 422 `VALIDATION_ERROR`；路由按 64 KiB 块读取，超过 20 MiB 立即停止且不调用 AvatarManager.save（`routes/avatars.py:23-24、64-85`） |
-| GET | `/v1/agents/{key}/avatar` | 取当前形象文件（`FileResponse`，Content-Type 按后缀：image/svg+xml / image/png / model/gltf-binary / model/gltf+json）；响应带 `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` + `X-Content-Type-Options: nosniff`（用户上传 SVG 直开也不执行脚本）。本模块首个二进制响应端点 | Agent 不存在 → 404 `AGENT_NOT_FOUND`；未设置形象或文件缺失 → 404 `AVATAR_NOT_FOUND` |
+| POST | `/v1/agents/{key}/versions` | 追加不可变版本快照（201），请求体 `AgentDefinition`；落库前同样经 `resolve_prompt_reference` 解析（来源：`agents.py:59`）——**整份定义回传（含旧 `prompt_version`）会钉住旧版 Prompt 内容**，要吃 Prompt 当前版须显式传 `prompt_version: null`。`show_avatar` 随整份定义按版本保存 | key 不存在 → 404 `AGENT_NOT_FOUND`；该 version 已存在 → 409 `conflict_response`（版本不可覆盖）；prompt/版本不存在 → 404 `PROMPT_NOT_FOUND`/`PROMPT_VERSION_NOT_FOUND` |
+| GET | `/v1/agents/{key}/versions/{version}` | 查询指定版本快照 | 版本不存在时区分：Agent 本身不存在 → 404 `AGENT_NOT_FOUND`；Agent 存在但该版本不存在 → 404 `AGENT_VERSION_NOT_FOUND`（来源：`agents.py:65-80` 二次查询判定） |
+| PUT | `/v1/agents/{key}/avatar` | 上传虚拟形象（multipart 字段 `file`，svg/png/glb/gltf，≤ 20MB）；**上传即版本**——服务端复制当前定义设 `avatar` 字段、追加新版本（照 Prompt 分配先例），返回新 `AgentDefinition`；文件落盘 `avatar_files_root/{key}/avatar.{ext}`（换类型自动清旧扩展名文件）。复制保留既有 `show_avatar` | Agent 不存在 → 404 `AGENT_NOT_FOUND`；坏后缀/超限 → 422 `VALIDATION_ERROR`；路由按 64 KiB 块读取，超过 20 MiB 立即停止且不调用 AvatarManager.save（`routes/avatars.py:23-24、64-85`） |
+| GET | `/v1/agents/{key}/avatar` | 取当前形象文件（`FileResponse`，Content-Type 按后缀：image/svg+xml / image/png / model/gltf-binary / model/gltf+json）；响应带 `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` + `X-Content-Type-Options: nosniff`（用户上传 SVG 直开也不执行脚本）。本模块首个二进制响应端点。`show_avatar=false` 是展示设置，不拒绝已鉴权资源请求 | Agent 不存在 → 404 `AGENT_NOT_FOUND`；未设置形象或文件缺失 → 404 `AVATAR_NOT_FOUND` |
 | DELETE | `/v1/agents/{key}/avatar` | 移除形象：删文件目录 + 追加 `avatar: None` 新版本 → `{removed: true}` | Agent 不存在 → 404 `AGENT_NOT_FOUND`；无形象 → 404 `AVATAR_NOT_FOUND` |
 
 #### prompts.py（`lubanagent/api/routes/prompts.py`）—— Prompt 库，与 agents 路由同型
@@ -62,10 +62,15 @@ SSE 事件类型映射（供理解流式返回体裁，来源：`lubanagent/runt
 
 | 方法 | 路径 | 说明 | 错误情况 |
 |---|---|---|---|
-| GET | `/v1/models` | 列出模型注册（脱敏：不输出 `base_url` 等连接信息；`params` 经 `redact_registered_model_params` 脱敏——仅展示 openai_compat 白名单推理/计价字段，其余键值替换 `[REDACTED]`，`routes/models.py:14-25`） | 无 |
+| GET | `/v1/models` | 列出模型注册（脱敏：不输出 `base_url` 等连接信息；`params` 经 `redact_registered_model_params` 脱敏——仅展示 openai_compat 白名单推理/计价字段，其余键值替换 `[REDACTED]`，`routes/models.py:25-36`） | 无 |
 | PUT | `/v1/models` | Upsert 模型定义，请求体 `ModelDefinition`，返回脱敏后的定义；写入边界校验：请求体先经 `ModelDefinition` 校验器（`api_key_env`/`base_url`/`params` 连接边界与白名单，`lubanagent/core/model.py:148-170`）拦截为 422，仓储 `upsert_model` 写入前再校验一层；更新请求 `base_url` 为空表示沿用旧值（列表接口不返回旧连接地址） | `api_key_env`/`base_url`/`params` 触发连接边界规则 → 422 `VALIDATION_ERROR`（校验错误不回显输入值） |
-| GET | `/v1/brain-mappings` | 查询四槽位（fast/smart/cheap/vision）当前映射；query `env`（缺省取 `ctx.settings.env`） | 无（未映射槽位跳过，不报错，见 `models.py:49-55`） |
-| PUT | `/v1/brain-mappings` | 设置某槽位映射，请求体 `BrainMappingSetRequest{profile, model_key, env?}` | `model_key` 不存在 → `LubanError(MODEL_NOT_FOUND)` → 404 |
+| GET | `/v1/brain-mappings` | 查询活动目录在指定环境的实际映射；query `env`（缺省取 `ctx.settings.env`），不再枚举四项 | 未映射槽位不返回；读权限 `config:read` |
+| PUT | `/v1/brain-mappings` | 设置动态槽位映射，`BrainMappingSetRequest{profile, model_key, env?}`；旧 alias 解析后返回当前 key | 模型不存在 → 404 `MODEL_NOT_FOUND`；槽位未知/已删除 → 404 `BRAIN_PROFILE_NOT_FOUND`；写权限 `config:write` |
+| GET | `/v1/brain-profiles` | 返回 `{env,items}`；env 为服务端环境，items 为活动槽位元信息及引用计数 | `config:read` |
+| POST | `/v1/brain-profiles` | 新增 `key/name/description?`，可同事务设置 `model_key/env`；201 返回槽位 | key/alias 占用 → 409 `BRAIN_PROFILE_CONFLICT`；非法标识/字段 → 422；模型不存在 → 404；`config:write` |
+| PATCH | `/v1/brain-profiles/{key}` | 编辑 key/name/description，可选同事务设置 model_key/env；改名保留 alias 并移动全部环境映射 | 槽位不存在 → 404；冲突 → 409 `BRAIN_PROFILE_CONFLICT`；非法字段 → 422；`config:write` |
+| GET | `/v1/brain-profiles/{key}/references` | 返回 `{key,agent_count,references}`；references 为 Agent key/name、version、current、field；包含全部历史版本的主/降级及摘要依赖 | 槽位不存在 → 404 `BRAIN_PROFILE_NOT_FOUND`；`config:read` |
+| DELETE | `/v1/brain-profiles/{key}` | 无 Agent 引用才留墓碑并删除所有环境映射，返回 `{removed:true}`；初始预设不另设保护 | 使用中 → 409 `BRAIN_PROFILE_IN_USE`，details 含 profile/references/agent_count，目录/映射不变；未知/已删除 → 404；`config:write` |
 
 #### tools.py（`lubanagent/api/routes/tools.py`）
 
@@ -174,8 +179,8 @@ knowledge 路由与 skills 同款架构约束：**不 import `lubanagent.knowled
 
 | 命令 | 参数 | 说明 | 错误情况 |
 |---|---|---|---|
-| `luban init` | `--agents-dir`（默认 `app/agents`）、`--database-url`（envvar `DATABASE_URL`）、`--fill-missing`（缺省 False，H08） | 先 `seed_defaults()` 幂等落种子（**模型定义与槽位映射都只填空位**，用户已配的真实模型映射/改过的同 key 定义不覆盖），再扫描 `agents_dir/*.yaml`（按文件名排序）逐个导入，四分支幂等（风险 R7 + H08，`main.py:121-150` `_init_async(definitions, url, *, fill_missing=False)`）：key 不存在 → `create_agent`（版本置 1）；`--fill-missing` 且 key 已存在 → **一律跳过不追加版本**（不比对内容，自动启动专用）；key 已存在且剔除 `version`/`status` 运行期字段后 `model_dump` 深度相等 → **跳过导入**（不追加版本）；有变化 → `create_version`（版本号 = 现有版本+1）。打印每个 `key@version`，未变化的追加 ` (unchanged)` 标记。YAML 的 `knowledge` 段支持两种形态：list shorthand（只设 sources）与 dict 全字段（`sources`/`top_k`/`cite`/守门三字段 `score_threshold`/`no_hit_fallback`/`max_age_days`，未知键 → `VALIDATION_ERROR`，`yaml_io.py:104-133`） | 任意异常经 `_fail()` 打印 `error: {code}: {message}` 到 stderr 并 `exit(1)` |
-| `luban export <key>` | `--output`（缺省打印 stdout）、`--version`（缺省当前版）、`--database-url` | 导出指定 Agent（或指定版本快照）定义为 YAML shorthand，往返无损；knowledge 段导出规则：仅 sources 非空且其余字段全默认 → list shorthand，任一守门字段非默认 → dict（`yaml_io.py:234-258`） | key 不存在 → `AGENT_NOT_FOUND`；version 不存在 → `AGENT_VERSION_NOT_FOUND`；均经 `_fail()` → `exit(1)` |
+| `luban init` | `--agents-dir`（默认 `app/agents`）、`--database-url`（envvar `DATABASE_URL`）、`--fill-missing`（缺省 False，H08） | 先 `seed_defaults()` 幂等落种子（**模型定义与槽位映射都只填空位**，用户已配的真实模型映射/改过的同 key 定义不覆盖），再扫描 `agents_dir/*.yaml`（按文件名排序）逐个导入，四分支幂等（风险 R7 + H08，`main.py:121-150` `_init_async(definitions, url, *, fill_missing=False)`）：key 不存在 → `create_agent`（版本置 1）；`--fill-missing` 且 key 已存在 → **一律跳过不追加版本**（不比对内容，自动启动专用）；key 已存在且剔除 `version`/`status` 运行期字段后 `model_dump` 深度相等 → **跳过导入**（不追加版本）；有变化 → `create_version`（版本号 = 现有版本+1）。打印每个 `key@version`，未变化的追加 ` (unchanged)` 标记。YAML 顶层支持 `show_avatar`（只接受布尔值，缺省 `true`）；`knowledge` 段支持两种形态：list shorthand（只设 sources）与 dict 全字段（`sources`/`top_k`/`cite`/守门三字段 `score_threshold`/`no_hit_fallback`/`max_age_days`，未知键 → `VALIDATION_ERROR`，`yaml_io.py:107-136`） | 任意异常经 `_fail()` 打印 `error: {code}: {message}` 到 stderr 并 `exit(1)` |
+| `luban export <key>` | `--output`（缺省打印 stdout）、`--version`（缺省当前版）、`--database-url` | 导出指定 Agent（或指定版本快照）定义为 YAML shorthand，往返无损；`show_avatar=true` 省略、`false` 显式导出。knowledge 段导出规则：仅 sources 非空且其余字段全默认 → list shorthand，任一守门字段非默认 → dict（`yaml_io.py:252-276`） | key 不存在 → `AGENT_NOT_FOUND`；version 不存在 → `AGENT_VERSION_NOT_FOUND`；均经 `_fail()` → `exit(1)` |
 | `luban migrate` | `--database-url` | 包 Alembic `upgrade head`（读仓库根 `alembic.ini` + `migrations/`），临时注入 `DATABASE_URL` 环境变量并在结束后还原，同时快照/还原 logging 配置（因 `migrations/env.py` 的 `fileConfig` 会重置进程日志） | Alembic 执行异常 → `_fail()` → `exit(1)` |
 | `luban eval run <agent>` | `--dataset`（必填 YAML 路径）、`--compare`（版本号或基线报告 JSON 路径）、`--save`（报告输出路径）、`--auto-approve`（审批型工具自动放行真实执行，缺省仅断言调用意图）、`--database-url`；`agent` 支持 `key` 或 `key@version` | 跑评测数据集，逐 case 输出 PASS/FAIL，汇总 `pass_rate`；启动时独立进程装配三件套（扩展扫描 `discover_packages` + 知识源自举 `restore_knowledge_sources` + 审批 manager 按需注入，见调用树）；跑完**完整报告落库**（`EvalRepository.save_report`：数据集首次运行时登记 + `EvalReport` 全量序列化落 `report` 列 + 聚合列 `pass_rate`/`passed_cases`/`total_cases`/`wrong_answer_rate` + 回填实际命中的 `model_key`，供 `/v1/evals` 列表/详情读真实数据，`main.py:393-407`）；`--save` JSON 输出保留（可移植基线载体）；`--compare` 命中回归（`comparison.regressions` 非空）→ `exit(1)`（compare 走内存/JSON 文件基线，DB 不接入对比） | Agent/版本不存在等运行期错误 → `_fail_evaluation()` → `exit(2)`（与 `init`/`export`/`migrate` 的 `exit(1)` 不同，专用退出码区分"评测发现问题"与"命令执行失败"） |
 
@@ -186,9 +191,12 @@ knowledge 路由与 skills 同款架构约束：**不 import `lubanagent.knowled
 | Schema | 字段 | 说明 |
 |---|---|---|
 | `RunCreateRequest` | `input: str`、`session_id: str\|None`、`user_id: str\|None`（`Field(default=None, max_length=128)`）、`version: int\|None`、`variables: dict[str,str]\|None`、`history: list[dict[str,str]]\|None`、`instructions_override: str\|None` | POST `/v1/agents/{key}/runs` 请求体；`user_id` 是业务侧透传观测标签，不是平台账号外键；`request_id` 和已认证 `subject` 由路由从 HTTP state 注入 `RunRequest`，不由客户端声明；`history` 为 OpenAI 风格 `[{role, content}]`，v1 不查库（注释标注 D3-2）；`instructions_override` 仅用于试跑临时替换 instructions，不入库 |
-| `ModelDefinitionOut` | `key`、`provider`、`model_name`、`factory`、`capability: ModelCapability`、`params: dict`、`api_key_env: str\|None`、`enabled: bool` | 模型定义对外脱敏视图：只输出 `api_key_env`（变量名），不输出 `base_url` 等连接信息；`params` 值经 `redact_registered_model_params` 脱敏，非 openai_compat 白名单字段只显示 `[REDACTED]`（`routes/models.py:14-25`） |
+| `ModelDefinitionOut` | `key`、`provider`、`model_name`、`factory`、`capability: ModelCapability`、`params: dict`、`api_key_env: str\|None`、`enabled: bool` | 模型定义对外脱敏视图：只输出 `api_key_env`（变量名），不输出 `base_url` 等连接信息；`params` 值经 `redact_registered_model_params` 脱敏，非 openai_compat 白名单字段只显示 `[REDACTED]`（`routes/models.py:25-36`） |
 | `BrainMappingSetRequest` | `profile: BrainProfile`、`model_key: str`、`env: str\|None` | PUT `/v1/brain-mappings` 请求体；`env` 缺省取 `settings.env` |
 | `BrainMappingOut` | `env`、`profile: BrainProfile`、`model_key` | — |
+| `BrainProfileCreate` / `BrainProfilePatch` | `key: BrainProfile`（PATCH 可空）、`name`（1–128，PATCH 可空）、`description`（≤512）、`model_key/env` 可选 | key 匹配 `^[a-z][a-z0-9_-]{0,63}$`；env 长 1–32；name/description 去首尾空白；未知额外字段拒绝；PATCH 未提供/为 null 的字段不改 |
+| `BrainProfileOut` / `BrainProfilesOut` | 槽位 `key/name/description/aliases/reference_count/agent_count`；列表 `{env,items}` | aliases 不含当前 key；引用计数是 Agent+版本+字段条数，agent_count 按 key 去重；env 来自服务端配置 |
+| `BrainProfileReference` / `BrainProfileReferencesOut` | 引用 `agent_key/agent_name/version/current/field`；外层 `key/agent_count/references` | field 为 `brain.profile`、`brain.fallback_profiles` 或 `memory.summary`（隐含 cheap），不是仅当前版本 |
 | `TraceOut` | `trace: Trace`、`events: list[TraceEvent]` | 直接复用 core 领域模型，不做映射裁剪 |
 | `ApprovalOut` | `id`、`run_id`、`tool_key`、`args: dict`、`created_at: datetime`、`status: str`、`decided_by: str\|None = None`、`decided_at: datetime\|None = None` | `core.ApprovalRequest` 领域对象的镜像（可持久化，落 `approvals` 表）；列表接口只返回 pending（`schemas.py:67-77`、`routes/approvals.py:31-36`） |
 | `DecideRequest` | `approved: bool`、`decided_by: str = ""` | `decided_by` 仅请求兼容字段，不参与归因（`schemas.py:80-82`、`routes/approvals.py:51-52`） |
@@ -202,6 +210,8 @@ knowledge 路由与 skills 同款架构约束：**不 import `lubanagent.knowled
 | `KnowledgeHitOut` | `source: str`、`chunk_index: int`、`content: str`、`score: float`、`metadata: dict` | 检索测试命中项，score 降序返回 |
 | `ErrorBody` | `code: str`、`message: str`、`details: dict = {}`、`retryable: bool = False` | — |
 | `ErrorOut` | `error: ErrorBody`；工厂方法 `ErrorOut.of(code, message, details=, retryable=)` | 统一错误响应包络 `{"error": {...}}` |
+
+YAML 的 `brain` / `fallbacks` 同样接受合法自定义标识；格式不合法在 `_parse_brain` 转为 `VALIDATION_ERROR`。自定义槽位须先在目录登记，导入保存时经 `normalize_agent_brain` 校验并将旧 alias 规范为当前 key（`lubanagent/cli/yaml_io.py`、`persistence/repositories/model.py`）。
 
 镜像别名（不重新定义，直接复用 core 领域模型作为 `response_model`）：`AgentDefinitionOut = AgentDefinition`、`RunOut = Run`（来源：`schemas.py:17-19`）；prompts 路由同样直接以 `PromptDefinition`/`PromptVersion` 为请求/响应模型，不做映射裁剪（来源：`routes/prompts.py:7`）；evals 路由以 `EvalReportSummary`/`EvalReportDetail`（`lubanagent/core/evaluation.py`）为响应模型（来源：`routes/evals.py:10`）；security 路由的登录/身份/退出与用户/角色/权限管理端点均已声明 `response_model`（`LoginResponse`/`SessionUserOut`/`LogoutResponse`/`UserPublic`/`RolePublic`/`RoleDeleteResponse`/`PermissionPublic`，来源：`routes/security.py:148-341`），OpenAPI schema 完整。
 
@@ -258,16 +268,17 @@ create_app(settings?, registry?, db?, on_startup?, extra_routers=(), ui_dist=Non
 
 lifespan 钩子（`factory.py:176-243`）：启动时先 `log_writer.start()`（异步日志写入器，装配了 writer 才有；后续启动/运行期日志经 `log_context(log_sink=...)` 入队）；`AUTH_DATABASE_ENABLED=true` 时做管理员引导检查——设置 `LUBAN_ADMIN_PASSWORD` 且 admin 不存在则播种 bootstrap admin，无活跃 admin 且也无 API Key/自定义 provider 时直接 `CONFIG_ERROR` 拒绝启动，否则 warning；若装配 `mcp_registry` 先登记 `mcp_servers` 表 enabled 记录（失败不阻断启动），再 `await knowledge_manager.ensure_restored()`（读 `knowledge_sources` 全表恢复托管知识源的 registry 注册，失败仅告警不阻断启动），再执行传入的 `on_startup` 回调（用户领地挂扩展/灌知识源，因 FastAPI `on_event("startup")` 已被 `lifespan` 取代），可选 Watchdog 控制回路启动；关闭按嵌套 `finally` 顺序执行：取消 Watchdog 任务 → 若 `observability` 是 `SafeBackend` 则 `await observability.drain()`（外发收尾）→ `mcp_registry.aclose()`（MCP 长连释放）→ `await log_writer.close()`（先停止接收、等待 in-flight 批次提交，再 flush 剩余队列）→ `await db.close()`（释放连接池）；任一层失败都会继续释放下层资源。
 
-#### `seed_defaults()`（`lubanagent/app/lifespan.py:11-29`）
+#### `seed_defaults()`（`lubanagent/app/lifespan.py`）
 
 ```
 seed_defaults(db)
 ├── env = get_settings().env
 └── async with db.session()
+    ├── repo.seed_brain_profiles(四个初始预设)  # 已有当前/历史标识（含墓碑）不动
     ├── for payload in defaults.SEED_MODEL_DEFINITIONS:
     │   └── if await repo.get_model(payload["key"]) is None: repo.upsert_model(...)  # 只填不存在（H08）
     └── for profile, model_key in defaults.SEED_BRAIN_MAPPINGS.items():
-        └── if not repo.has_brain_mapping(env, profile): repo.set_brain_mapping(env, profile, model_key)  # 只填空位
+        └── if repo.has_brain_profile(profile) and not repo.has_brain_mapping(env, profile): repo.set_brain_mapping(env, profile, model_key)  # 仅活动预设补空映射
 ```
 
 供 `luban init` 与装配期测试共用；**模型定义与槽位映射都只填空位（H08）**——种子模型仅当 `get_model(key) is None` 时才 `upsert_model`（此前每次 init 无条件 upsert，会把工作台改过的同 key 定义覆盖回种子值），已存在的映射（用户经工作台/API 配置过）不覆盖，因此重复 `luban init`（如 `dev.sh` 每次重启都会跑）既不会把真实模型打回 `fake-chat`，也不会把工作台的模型修改打回。
@@ -335,6 +346,7 @@ CLI 侧输出：逐 case `[PASS]`/`[FAIL]` + 失败原因；`pass_rate` 汇总�
 ## 边界规则
 
 - **文档站部署边界**：文档站由 `.github/workflows/docs.yml` 按 workflow 触发构建，项目页通过 `DOCS_BASE=/LuBan/` 设置子路径；GitHub Pages 地址是 `https://lubanagent-dev.github.io/LuBan/`，GitHub 仓库入口是 `https://github.com/lubanagent-dev/LuBan`。该发布链路独立于平台 API 运行时，不改变 `/v1/*` 契约。
+- **文档站内容与复制策略边界**：首页起源由 `website/index.md` frontmatter `origin` 驱动，主题 `HomeOrigin` 挂 `home-hero-after` 服务端渲染（`theme/index.ts:19-38、191`），文案口径对齐 PRD §1.2（复用 LangChain/LangGraph、不自建观测平台、若依式完整工程），无新增运行时。代码复制策略是构建期词法变换：`inlineCommentCopyTransformer`（`config.mts:41-156`）按 Shiki scopeName 识别 `comment.*` 作用域并经 VitePress 原生 `vp-copy-ignore` 从复制输出排除解释性注释；`PRESERVED_COMMENT` 白名单（`config.mts:13`）保留 shebang/SPDX/版权/许可证/静态检查 pragma，`LICENSE_COMMENT`（`config.mts:14`）命中许可声明的连续独占行注释组整体保留（`config.mts:70-92`，多行逐行许可证不丢后续授权文本），字符串/heredoc/YAML block scalar 靠词法作用域判定不受 `#`/`//` 正则误删；行尾注释以 `.docs-inline-comment` 另起视觉行（`custom.css:320`）。全站 `DocsUseNotice`、每页 `robots` meta 与 `buildEnd` 生成 `DOCS_BASE` 感知的 `robots.txt`（`config.mts:281-309`）均属文档站发布链路，不改变 `/v1/*` 契约；禁抓取/禁导出是使用请求而非技术防下载，不限制正常缓存与手工代码复制，不改变源码与文档的 Apache-2.0 授权，项目页 `/LuBan/robots.txt` 不是域名根爬虫入口。
 - **鉴权强制点**：框架 `api_router` 聚合依赖覆盖框架 `/v1/*`；security 路由的 me/logout 与 managed router 显式挂 `get_principal`，用户 router 必须显式保护，工厂为 `extra_routers` 再注入 `get_principal` 并在静态挂载前注册。`/health` 与 `POST /v1/auth/login` 不要求既有凭据；`/v1` 未知路由不会被 SPA 页面回退接管。
 - **鉴权优先级与权限裁决**：`auth_enabled=True` 时 Master API Key 优先映射为 bootstrap admin，自定义 `AuthProvider` 次之，否则数据库 bearer 会话；无 bearer 时退化到内置 API Key。认证后按 `required_permission(method,path)` 裁决：auth 路径仅认证、security 要求 `security:manage`、logs/diagnostics 要求 `diagnostics:read`，runs/traces/approvals、评测和其余配置读写分别映射 run/eval/config 权限；未知写路径默认 `config:write`。`auth_enabled=False` 使用 anonymous 全权限主体，仅限开发模式且仍限流。
 - **配置缺失 fail fast**：`create_app()` 在扩展扫描后检查 `AUTH_ENABLED=true` 且无 `API_KEY`、无自定义 provider、且 `AUTH_DATABASE_ENABLED=false` 的组合，直接 raise `CONFIG_ERROR` 拒绝启动；可用出路是设置 `API_KEY`、开启数据库账号模式、注册自定义 AuthProvider 或显式关闭鉴权（仅开发期）。`AUTH_DATABASE_ENABLED=true` 且设置 `LUBAN_ADMIN_PASSWORD` 时 lifespan 只在 admin 不存在时创建 bootstrap admin；无活跃 admin 且未设置密码时，若也没有 API Key 和自定义 provider 则 lifespan 直接 `CONFIG_ERROR`，否则 warning 提示先经 API Key 创建账号；已有活跃 admin 重启不要求引导密码。
@@ -342,8 +354,10 @@ CLI 侧输出：逐 case `[PASS]`/`[FAIL]` + 失败原因；`pass_rate` 汇总�
 - **SPA 回退边界**：有 UI dist 时仅 GET/HEAD 且无文件后缀、非 `/v1`/`/v1/*`、非 `/assets/`/`/favicon*`/`/.well-known/` 的 404 返回 `index.html`；其他错误沿用 HTTP 异常响应，未知 API 保持 JSON 404（`factory.py:170-185`）。
 - **限流规则**：`auth_enabled=True` 时先由 `AuthProvider.verify()` 验证，再按返回的 `Principal.subject` 分桶；关闭鉴权时所有请求统一使用 `anonymous` 桶，不采信任意 Bearer 或 `X-Forwarded-For` 拆桶（`api/auth.py:76-94`）。每桶每 60 秒最多 `settings.rate_limit_per_minute` 次（滑动窗口）；`InMemoryRateLimiter` 默认最多 4096 桶，每次调用清理 60 秒窗口内已过期的命中，空桶回收；容量已满时拒绝新主体而不驱逐仍有命中的桶。被限流请求返回 `RATE_LIMITED` 429（`api/auth.py:46-73、91-94`、`api/errors.py:29`）。计数只在单进程内有效，多进程/多实例不共享；当前不使用转发 IP 作为身份。内置共享 API Key 验证后统一返回 `api-key-holder`，只能证明持有该 Key，不能识别独立人员（`api/auth.py:21-30`）。
 - **错误码 → HTTP 状态映射钉死在 `ERROR_HTTP_STATUS` 字典**（`errors.py:16-32`），未覆盖的错误码默认映射到 500；异常处理器注册顺序固定为 `RequestValidationError → LubanError → Exception`（`errors.py:42`），未捕获异常只记录堆栈到日志，响应体不泄露堆栈信息（`errors.py:61-65`）。
+- **槽位目录由后端唯一裁决**：读目录/引用/映射需 `config:read`，POST/PATCH/DELETE/PUT 需 `config:write`；新增/改名和可选映射写入共用事务，任何校验失败整体回滚。改名不重写历史快照；删除扫描全部 Agent 历史版本（主/降级/摘要隐含 cheap），UI 删前检查只是提示，409 是最终保护。删除未使用 smart/cheap 后，默认 Agent、CLI judge 或摘要依赖须显式重新配置，不由播种静默复活（来源：`routes/models.py`、`api/auth.py`、`repositories/model.py`、`app/lifespan.py`）。
 - **409 冲突走路由级手工构造而非 `LubanError`**：Agent key 重复、版本已存在（`agents.py`）与 Prompt key 重复、版本已存在（`prompts.py`）均用 `conflict_response()` 直接返回 `JSONResponse(409, ...)`，未定义独立 `ErrorCode`，复用 `VALIDATION_ERROR` 语义（来源：`errors.py:35-38`）。审批"不存在或已终结"同样手工构造 404（`approvals.py:46-50`），不经统一异常处理器。
-- **Agent 版本不可覆盖**：`POST /v1/agents/{key}/versions` 若目标版本号已存在直接 409 拒绝创建，版本快照一旦写入不可变更（来源：`agents.py:51-55`）。
+- **Agent 版本不可覆盖**：`POST /v1/agents/{key}/versions` 若目标版本号已存在直接 409 拒绝创建，版本快照一旦写入不可变更（来源：`agents.py:53-57`）。
+- **虚拟形象显示不是访问控制**：`show_avatar=false` 只让聊天前端不挂载陪伴栏、不请求形象资源；文件名保留在定义中，已鉴权 `GET /v1/agents/{key}/avatar` 仍可用。修改该字段走普通 Agent 版本保存，权限仍是 `config:write`（来源：`ChatPage.tsx:169-181`、`routes/avatars.py:88-111`）。
 - **`luban migrate` / `luban init` 幂等性**：`migrate` 底层是 Alembic `upgrade head`，重复执行在已是最新版本时为空操作，安全；`init` 的 `seed_defaults()` 种子模型与映射**只填不存在**（H08，`lifespan.py:21-29`），agents 目录导入默认三分支幂等（风险 R7 修复）——已存在 key 且剔除 `version`/`status` 后内容深度相等时**跳过导入不追加版本**（`_strip_runtime_fields` 比较，`main.py:113-118、139-143`），只有内容真正变化才 `create_version`；`--fill-missing` 下已存在一律跳过不追加版本（`main.py:136-138`），供自动启动使用（`scripts/dev.sh:36-37`）。Docker 启动脚本注释明确写"migrate/init 幂等，重起安全（契约 D1-9 决策）"（来源：`docker/Dockerfile:39`），该表述现在对 `init` 全程成立（如 `dev.sh` 每次重启跑 `init` 不会造成版本号膨胀）。
 - **`luban eval run` 独立退出码**：评测运行期错误（Agent/版本不存在等）用 `exit(2)`，区别于 `init`/`export`/`migrate` 统一用的 `exit(1)`；`--compare` 命中回归（`regressions` 非空）用 `exit(1)`（来源：`main.py:269-275、338-339`）——CI 集成时需按这两种退出码区分"评测流程本身出错"与"发现质量回归"。
 - **演示部署边界（H08）**：仓库根 `docker-compose.yml` 是全栈演示形态，不是生产拓扑——app（`docker-compose.yml:10-12`）与 Langfuse 工作台（`docker-compose.yml:58-60`）端口都只绑 `127.0.0.1` loopback，`AUTH_ENABLED=false` 仅出现在演示 app 服务且注释标注生产须 `true` + `API_KEY`（`docker-compose.yml:19-20`）；生产部署用反向代理 + 鉴权开启。mock-biz 不映射宿主端口，app 经容器网络 `http://mock-biz:9100` 访问（`docker-compose.yml:18、91`）。工作台知识库/头像文件经 `KNOWLEDGE_FILES_ROOT=/data/knowledge`、`AVATAR_FILES_ROOT=/data/avatars` 挂 `knowledge-data`/`avatars-data` 具名卷持久化，容器重建不丢（`docker-compose.yml:21-27、96-97`）。本地开发 `scripts/dev.sh` 同口径：API uvicorn 绑 `127.0.0.1:8000`（`dev.sh:38-39`）、Vite 显式 `--host 127.0.0.1 --port 5173 --strictPort`（`dev.sh:49`）、自动启动用 `luban init --fill-missing`（`dev.sh:36-37`）。Docker 构建上下文裁剪（仓库根 `.dockerignore`，构建上下文为仓库根）：`**/.env`/`**/.env.*` 递归排除且仅放行样本 `app/config/.env.example`、私钥形态 `**/*.pem`/`**/*.key`/`**/*.p12`/`**/*.pfx`/`**/id_rsa*`/`**/id_ed25519*`、运行数据 `/data/`/`demos/customer_service/data/`、调试产物 `/.study/`（`.dockerignore:37-53`）；canary 实测镜像构建上下文归 H14。以上部署契约由 `tests/test_deployment_contracts.py` 固化（dockerignore canary 匹配、compose loopback/卷/鉴权边界、dev.sh loopback、种子只填不存在、`--fill-missing` 幂等与显式导入追加版本）。
@@ -354,7 +368,7 @@ CLI 侧输出：逐 case `[PASS]`/`[FAIL]` + 失败原因；`pass_rate` 汇总�
 - **SSE 流式响应的错误语义分层**：Run 启动前的失败（Agent/版本不存在、不可运行等）走 HTTP 层错误映射（404/422）；Run 已开始后的失败走 SSE 事件（`run.failed`/`run.cancelled`），HTTP 状态码本身仍是 200（来源：`runs.py:48-54`，resume 端点同模式 `runs.py:105-118`）——**客户端必须同时处理 HTTP 错误响应和 SSE 内的终态事件两种失败信道**。
 - **resume 仅限本进程非终态 Run**：`POST /v1/runs/{run_id}/resume` 五项前置校验（Run 存在、非终态、非本进程活跃执行、非子 Run、存在 checkpoint）任一失败在流开始前抛错；子 Run 不可独立 resume（归属父编排 Run）；进程内并发 resume 由 per-run `asyncio.Lock` 串行（锁在全部校验之前获取）——第二个请求等锁到第一个推进终态后，按**终态拒绝**（`VALIDATION_ERROR`）而非活跃拒绝（测试 `test_resume.py::test_resume_concurrent_serialized` 明确断言该语义）；跨进程恢复（如 eval 独立进程）不在契约内（来源：`runs.py:105-118`、`runtime/agent_loop.py` `stream_resume`）。
 - **`create_app(checkpointer=...)` 哨兵语义**：缺省自动装配 `LubanCheckpointer(db)`（resume 默认可用）；显式传 `None` 才关闭 checkpoint 写入，此时 resume 返回 500 `CONFIG_ERROR` 而非静默看似可用（来源：`factory.py:43-45、109-110`）。
-- **模型注册输出/写入的防密钥边界**：模型列表与详情（`GET /v1/models`、`PUT /v1/models` 响应）的 `params` 经 `redact_registered_model_params` 脱敏——管理界面仅展示 openai_compat 已知推理/计价字段，其余键（含非 openai_compat 工厂全部字段）值替换 `[REDACTED]`，历史脏数据可展示但秘密不回显（来源：`routes/models.py:14-25`、`lubanagent/core/model.py:55-64`）。写入侧连接边界校验见 persistence 模块（`ModelRepository.upsert_model` → `validate_model_connection`）；`base_url` 不回显，更新时传空表示沿用旧值。
+- **模型注册输出/写入的防密钥边界**：模型列表与详情（`GET /v1/models`、`PUT /v1/models` 响应）的 `params` 经 `redact_registered_model_params` 脱敏——管理界面仅展示 openai_compat 已知推理/计价字段，其余键（含非 openai_compat 工厂全部字段）值替换 `[REDACTED]`，历史脏数据可展示但秘密不回显（来源：`routes/models.py:25-36`、`lubanagent/core/model.py:55-64`）。写入侧连接边界校验见 persistence 模块（`ModelRepository.upsert_model` → `validate_model_connection`）；`base_url` 不回显，更新时传空表示沿用旧值。
 
 ## 名词
 

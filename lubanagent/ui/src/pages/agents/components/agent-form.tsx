@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { AgentDefinition, BrainProfile } from '@/api/hooks';
-import { usePrompts } from '@/api/hooks';
+import { useBrainProfiles, usePrompts } from '@/api/hooks';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -23,7 +23,7 @@ import { Textarea } from '@/components/ui/textarea';
 
 import {
   AGENT_STATUSES,
-  BRAIN_PROFILES,
+  brainProfileOptions,
   STATUS_LABELS,
   toNullableNumber,
   toNumber,
@@ -155,13 +155,24 @@ function SwitchRow({
         <p className="text-sm">{label}</p>
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} />
+      <Switch
+        aria-label={label}
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        disabled={disabled}
+      />
     </div>
   );
 }
 
 export function AgentForm({ draft, onChange, readOnly = false }: AgentFormProps) {
+  const profilesQuery = useBrainProfiles();
   const brain = draft.brain ?? { profile: 'smart' as BrainProfile, allow_run_override: false };
+  const profiles = brainProfileOptions(profilesQuery.data?.items ?? [], [
+    brain.profile,
+    ...(brain.fallback_profiles ?? []),
+  ]);
+  const primaryKey = profiles.find((slot) => slot.key === brain.profile)?.canonicalKey;
   const boundary = draft.boundary ?? {
     max_steps: 16,
     timeout_seconds: 300,
@@ -256,6 +267,13 @@ export function AgentForm({ draft, onChange, readOnly = false }: AgentFormProps)
             onChange={(event) => patch({ greeting: event.target.value })}
           />
         </Field>
+        <SwitchRow
+          label="显示虚拟形象"
+          hint="关闭后聊天页不显示形象区域，已上传的文件保留。保存为新版本后生效。"
+          checked={draft.show_avatar ?? true}
+          disabled={readOnly}
+          onCheckedChange={(checked) => patch({ show_avatar: checked })}
+        />
         {!readOnly && (
           <AvatarCard
             agent={draft}
@@ -283,17 +301,27 @@ export function AgentForm({ draft, onChange, readOnly = false }: AgentFormProps)
             <Select
               value={brain.profile}
               disabled={readOnly}
-              onValueChange={(value) =>
-                patch({ brain: { ...brain, profile: value as BrainProfile } })
-              }
+              onValueChange={(value) => {
+                const canonical = profiles.find((slot) => slot.key === value)?.canonicalKey;
+                patch({
+                  brain: {
+                    ...brain,
+                    profile: value as BrainProfile,
+                    fallback_profiles: (brain.fallback_profiles ?? []).filter(
+                      (key) =>
+                        profiles.find((slot) => slot.key === key)?.canonicalKey !== canonical,
+                    ),
+                  },
+                });
+              }}
             >
               <SelectTrigger aria-label="逻辑大脑槽位">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {BRAIN_PROFILES.map((profile) => (
-                  <SelectItem key={profile} value={profile}>
-                    {profile}
+                {profiles.map((profile) => (
+                  <SelectItem key={profile.key} value={profile.key}>
+                    {profile.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -302,34 +330,55 @@ export function AgentForm({ draft, onChange, readOnly = false }: AgentFormProps)
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">降级槽位（fallback_profiles）</Label>
             <div className="flex flex-wrap gap-3 rounded-md border px-3 py-2">
-              {BRAIN_PROFILES.filter((profile) => profile !== brain.profile).map((profile) => {
-                const fallbacks = brain.fallback_profiles ?? [];
-                const checked = fallbacks.includes(profile);
-                return (
-                  <label key={profile} className="flex items-center gap-1.5 text-sm">
-                    <input
-                      type="checkbox"
-                      className="accent-primary"
-                      checked={checked}
-                      disabled={readOnly}
-                      onChange={(event) =>
-                        patch({
-                          brain: {
-                            ...brain,
-                            fallback_profiles: event.target.checked
-                              ? [...fallbacks, profile]
-                              : fallbacks.filter((item) => item !== profile),
-                          },
-                        })
-                      }
-                    />
-                    {profile}
-                  </label>
-                );
-              })}
+              {profiles
+                .filter(
+                  (profile, index) =>
+                    profile.canonicalKey !== primaryKey &&
+                    profiles.findIndex((slot) => slot.canonicalKey === profile.canonicalKey) ===
+                      index,
+                )
+                .map((profile) => {
+                  const fallbacks = brain.fallback_profiles ?? [];
+                  const checked = fallbacks.some(
+                    (key) =>
+                      profiles.find((slot) => slot.key === key)?.canonicalKey ===
+                      profile.canonicalKey,
+                  );
+                  return (
+                    <label key={profile.key} className="flex items-center gap-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        className="accent-primary"
+                        checked={checked}
+                        disabled={readOnly}
+                        onChange={(event) =>
+                          patch({
+                            brain: {
+                              ...brain,
+                              fallback_profiles: event.target.checked
+                                ? [...fallbacks, profile.key]
+                                : fallbacks.filter(
+                                    (item) =>
+                                      profiles.find((slot) => slot.key === item)?.canonicalKey !==
+                                      profile.canonicalKey,
+                                  ),
+                            },
+                          })
+                        }
+                      />
+                      {profile.label}
+                    </label>
+                  );
+                })}
             </div>
           </div>
         </div>
+        {profilesQuery.error && (
+          <p className="text-sm text-destructive">槽位加载失败：{profilesQuery.error.message}</p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          槽位在「模型中心 → 大脑映射」新增和编辑，主槽位与降级槽位共用同一份目录。
+        </p>
         <SwitchRow
           label="允许运行期覆盖（allow_run_override）"
           hint="打开后，单次 Run 可在请求里临时指定其他槽位"

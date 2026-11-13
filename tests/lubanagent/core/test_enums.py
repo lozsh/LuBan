@@ -1,5 +1,7 @@
 """枚举值逐字核对: 契约「验收标准」第 4 条。"""
 
+import pytest
+
 from lubanagent.core import (
     AgentStatus,
     BrainProfile,
@@ -15,13 +17,37 @@ def test_brain_profile_values() -> None:
     assert [p.value for p in BrainProfile] == ["fast", "smart", "cheap", "vision"]
 
 
-def test_error_code_all_29() -> None:
+def test_brain_profile_supports_custom_identifiers() -> None:
+    from lubanagent.core import AgentDefinition
+
+    definition = AgentDefinition(
+        key="custom",
+        name="Custom",
+        brain={"profile": "deep_reasoning", "fallback_profiles": ["small-model"]},
+    )
+    assert definition.brain.profile.value == "deep_reasoning"
+    assert definition.brain.fallback_profiles[0].value == "small-model"
+    assert definition.model_dump(mode="json")["brain"]["profile"] == "deep_reasoning"
+    assert BrainProfile("smart") is BrainProfile.SMART
+    assert "enum" not in AgentDefinition.model_json_schema()["$defs"]["BrainProfile"]
+
+
+@pytest.mark.parametrize("value", ["", "Smart", "a b", "../slot", "a/b", "中文", "1name", "a" * 65])
+def test_brain_profile_rejects_invalid_identifiers(value: str) -> None:
+    with pytest.raises(ValueError):
+        BrainProfile(value)
+
+
+def test_error_code_all_32() -> None:
     expected = [
         "AGENT_NOT_FOUND",
         "AGENT_VERSION_NOT_FOUND",
         "AGENT_VERSION_UNRUNNABLE",
         "MODEL_NOT_FOUND",
         "BRAIN_NOT_MAPPED",
+        "BRAIN_PROFILE_NOT_FOUND",
+        "BRAIN_PROFILE_CONFLICT",
+        "BRAIN_PROFILE_IN_USE",
         "CAPABILITY_MISMATCH",
         "NO_FALLBACK_AVAILABLE",
         "TOOL_NOT_FOUND",

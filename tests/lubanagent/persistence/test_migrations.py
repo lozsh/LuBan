@@ -6,10 +6,12 @@
 """
 
 import asyncio
+import json
 import os
 import sqlite3
 from pathlib import Path
 
+import pytest
 from alembic import command as alembic_command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config as AlembicConfig
@@ -206,3 +208,177 @@ def test_new_access_tables_compile_for_mysql_without_text_indexes():
         for index in table.indexes:
             assert str(CreateIndex(index).compile(dialect=dialect))
     assert next(iter(Base.metadata.tables["users"].indexes)).unique
+
+
+_PRE_0012 = "a1b2c3d4e5f6"
+_BRAIN_TABLES = frozenset({"brain_profiles", "brain_profile_aliases", "brain_mappings", "runs"})
+
+
+def _seed_old_brain_data(url: str, *, profile: str = "smart") -> str:
+    definition = json.dumps(
+        {
+            "key": "migrated-agent",
+            "name": "Migrated",
+            "brain": {"profile": profile},
+            "version": 1,
+            "status": "draft",
+        },
+        ensure_ascii=False,
+    )
+    with sqlite3.connect(_sync_path(url)) as connection:
+        connection.execute(
+            "INSERT INTO models (`key`, provider, model_name, factory, "
+            "capability, params, enabled) "
+            "VALUES ('m', 'fake', 'fake', 'fake', '{}', '{}', 1)"
+        )
+        connection.execute(
+            "INSERT INTO brain_mappings (env, profile, model_key) VALUES ('dev', ?, 'm')",
+            (profile,),
+        )
+        connection.execute(
+            "INSERT INTO agents (`key`, name, description, current_version, status) "
+            "VALUES ('migrated-agent', 'Migrated', '', 1, 'draft')"
+        )
+        connection.execute(
+            "INSERT INTO agent_versions (agent_id, version, definition, status) "
+            "VALUES (1, 1, ?, 'draft')",
+            (definition,),
+        )
+        connection.execute(
+            "INSERT INTO runs (id, agent_id, agent_version_id, status, input, brain_profile, "
+            "token_usage, cost, output) "
+            "VALUES ('migrated-run', 1, 1, 'completed', '{}', ?, '{}', 0, 'Answer')",
+            (profile,),
+        )
+    return definition
+
+
+def test_migration_0012_roundtrip_catalog_and_schema_parity(tmp_path):
+    url = f"sqlite+aiosqlite:///{tmp_path}/brain-migration.db"
+    _alembic_run(url, "upgrade", _PRE_0012)
+    definition = _seed_old_brain_data(url)
+    _alembic_run(url, "upgrade", "head")
+    for attempt in range(2):
+        engine = create_engine(url.replace("+aiosqlite", ""))
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            assert _BRAIN_TABLES <= set(inspector.get_table_names())
+            for table, column in [("runs", "brain_profile"), ("brain_mappings", "profile")]:
+                assert (
+                    next(item for item in inspector.get_columns(table) if item["name"] == column)[
+                        "type"
+                    ].length
+                    == 64
+                )
+            context = MigrationContext.configure(
+                connection,
+                opts={
+                    "include_object": lambda obj, name, kind, reflected, compared: (
+                        name in _BRAIN_TABLES
+                        if kind == "table"
+                        # 0001 的 runs.cost 为 Float，现有 ORM 为 Double（本轮前漂移），
+                        # 只排除此既有列；新表、标识列、约束及其他 Run 字段仍逐项对齐。
+                        else not (kind == "column" and obj.table.name == "runs" and name == "cost")
+                    ),
+                },
+            )
+            assert compare_metadata(context, Base.metadata) == []
+        engine.dispose()
+        with sqlite3.connect(_sync_path(url)) as connection:
+            assert (
+                connection.execute("SELECT definition FROM agent_versions").fetchone()[0]
+                == definition
+            )
+            assert connection.execute("SELECT brain_profile, output FROM runs").fetchone() == (
+                "smart",
+                "Answer",
+            )
+            assert connection.execute(
+                "SELECT profile, model_key FROM brain_mappings"
+            ).fetchone() == ("smart", "m")
+            assert {row[0] for row in connection.execute("SELECT `key` FROM brain_profiles")} == {
+                "fast",
+                "smart",
+                "cheap",
+                "vision",
+            }
+            assert connection.execute("SELECT COUNT(*) FROM brain_profile_aliases").fetchone() == (
+                4,
+            )
+        if attempt == 0:
+            _alembic_run(url, "downgrade", _PRE_0012)
+            with sqlite3.connect(_sync_path(url)) as connection:
+                assert not connection.execute(
+                    "SELECT name FROM sqlite_master WHERE name = 'brain_profiles'"
+                ).fetchone()
+                assert connection.execute("SELECT brain_profile FROM runs").fetchone() == ("smart",)
+            _alembic_run(url, "upgrade", "head")
+
+
+@pytest.mark.parametrize(
+    "change", ["custom", "renamed", "deleted", "edited", "definition", "run", "mapping"]
+)
+def test_migration_0012_rejects_destructive_downgrade(tmp_path, change):
+    url = f"sqlite+aiosqlite:///{tmp_path}/brain-downgrade.db"
+    _alembic_run(url, "upgrade", _PRE_0012)
+    _seed_old_brain_data(url)
+    _alembic_run(url, "upgrade", "head")
+    with sqlite3.connect(_sync_path(url)) as connection:
+        if change == "custom":
+            connection.execute(
+                "INSERT INTO brain_profiles (`key`, name, description, deleted, revision) "
+                "VALUES ('custom', 'Custom', '', 0, 0)"
+            )
+        elif change == "renamed":
+            connection.execute(
+                "UPDATE brain_profiles SET `key` = 'new-smart' WHERE `key` = 'smart'"
+            )
+        elif change == "deleted":
+            connection.execute("UPDATE brain_profiles SET deleted = 1 WHERE `key` = 'smart'")
+        elif change == "edited":
+            connection.execute("UPDATE brain_profiles SET name = '推理' WHERE `key` = 'smart'")
+        elif change == "definition":
+            connection.execute(
+                "UPDATE agent_versions SET definition = ?",
+                (json.dumps({"brain": {"profile": "smart", "fallback_profiles": ["custom"]}}),),
+            )
+        elif change == "run":
+            connection.execute("UPDATE runs SET brain_profile = 'custom'")
+        else:
+            connection.execute("UPDATE brain_mappings SET profile = 'custom'")
+    with pytest.raises(RuntimeError, match="Cannot downgrade editable brain profiles"):
+        _alembic_run(url, "downgrade", _PRE_0012)
+    with sqlite3.connect(_sync_path(url)) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "b2c3d4e5f6a7",
+        )
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'brain_profiles'"
+        ).fetchone()
+
+
+def test_migration_0012_registers_legacy_custom_keys_without_rewriting_snapshots(tmp_path):
+    url = f"sqlite+aiosqlite:///{tmp_path}/brain-custom-migration.db"
+    _alembic_run(url, "upgrade", _PRE_0012)
+    definition = _seed_old_brain_data(url, profile="existing_custom")
+    _alembic_run(url, "upgrade", "head")
+    with sqlite3.connect(_sync_path(url)) as connection:
+        assert (
+            connection.execute("SELECT definition FROM agent_versions").fetchone()[0] == definition
+        )
+        assert connection.execute("SELECT brain_profile FROM runs").fetchone() == (
+            "existing_custom",
+        )
+        assert connection.execute(
+            "SELECT name FROM brain_profiles WHERE `key` = 'existing_custom'"
+        ).fetchone() == ("existing_custom",)
+    with pytest.raises(RuntimeError):
+        _alembic_run(url, "downgrade", _PRE_0012)
+
+
+def test_brain_profile_tables_compile_for_mysql():
+    dialect = mysql.dialect()
+    for name in _BRAIN_TABLES:
+        assert f"CREATE TABLE {name}" in str(
+            CreateTable(Base.metadata.tables[name]).compile(dialect=dialect)
+        )

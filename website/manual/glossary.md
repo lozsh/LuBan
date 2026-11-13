@@ -7,7 +7,7 @@
 | Agent 定义 | 一个 Agent 的全部要素（人设、指令、大脑、知识、记忆、能力、边界、契约），存库、版本化、运行期可改 | [Agent 定义](./features/agent-definition.md) |
 | Agent 版本 | Agent 定义的不可变快照，一次 Run 绑定一个版本，改定义不影响在跑的和历史的 Run | [Agent 定义](./features/agent-definition.md) |
 | Prompt 库 | 系统提示词的独立版本化管理：草拟、发版、多 Agent 复用；Agent 引用后解析全文进版本快照，Prompt 新版不自动生效 | [Prompt 库](./features/prompt-library.md) |
-| 逻辑大脑 | fast / smart / cheap / vision 四个槽位，Agent 引用槽位而非具体模型名，换模型不改代码 | [模型工厂](./features/models.md) |
+| 逻辑大脑 | 可新增、编辑和改名的模型槽位；fast / smart / cheap / vision 只是初始预设。Agent 引用槽位而非模型名，有历史版本使用时不能删除 | [模型工厂](./features/models.md) |
 | 模型工厂 | 集中收敛各模型创建与参数差异的模块，新增厂商只动这里 | [模型工厂](./features/models.md) |
 | Run | 一次 Agent 运行，绑定 Agent 版本与实际模型 | [运行观测](./features/observability.md) |
 | Trace | 一次 Run 的完整现场记录：用了哪个版本/模型、调了几次模型、调了哪些 Tool、花了多少 Token/费用 | [运行观测](./features/observability.md) |

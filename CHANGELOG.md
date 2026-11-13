@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### 文档站起源与使用约定
+
+- `[shared]` **首页起源板块 + 代码复制策略 + 在线文档使用约定**（`website/index.md`、`website/manual/index.md`、`website/manual/introduction.md`、`website/.vitepress/config.mts`、`website/.vitepress/theme/`、README 起源口径）：① 首页 frontmatter `origin` + 主题 `HomeOrigin` 在 hero 之后服务端渲染起源板块，按 PRD §1.2"库多工程少、组装完整工程"与"若依式起步基座"定位回答"框架很多为什么还要做"，不虚构个人故事或竞品缺陷；② `inlineCommentCopyTransformer` 用 Shiki scopeName 词法作用域识别解释性注释，复制时经 VitePress 原生 `vp-copy-ignore` 排除，行尾注释另起视觉行；字符串字面量、heredoc、YAML block scalar、shebang/许可证/静态检查 pragma 一律保留，多行逐行注释许可证按连续独占行组整体保留；18 项词法复制回归通过；③ 全站 `DocsUseNotice`（首页与每篇文档页）+ 每页 `robots` meta（noindex, nofollow, noarchive, noai, noimageai）+ `buildEnd` 按 `DOCS_BASE` 生成 `robots.txt`。**边界**：禁抓取/禁导出声明是使用请求，不是技术防下载；不限制浏览器正常缓存与手工复制代码示例；不改变源码与仓库文档的 Apache-2.0 授权；GitHub Pages 项目页的 `/LuBan/robots.txt` 不是域名根爬虫入口。合并指令：`[shared]` 正常合并；自有域名部署时把生成的 `robots.txt` 放到域名根目录才构成标准爬虫入口。
+
+### 可编辑大脑槽位
+
+- `[framework]` **动态槽位目录**：fast/smart/cheap/vision 保留为四个初始常量，标识支持 `^[a-z][a-z0-9_-]{0,63}$`，OpenAPI 改为受约束 string。新增 `GET/POST /v1/brain-profiles`、`PATCH/DELETE /v1/brain-profiles/{key}`、`GET /v1/brain-profiles/{key}/references` 五条路由；动态环境映射不再枚举四项。目录标识/名称/用途可编辑，改名保留旧 alias 并移动全部环境映射，不重写 Agent/Run 历史快照，新版本保存当前标识。
+- `[framework]` **后端删除保护与工作台**：全部槽位（含预设）仅在所有已保存可运行 Agent 历史版本都无主/降级/摘要隐含 cheap 引用时可删除；版本号无正数约束，graph stub 的 `version=0` 与负数版本同样计入扫描。409 返回实际 Agent、版本和字段，映射保持不变。Agent 保存与目录/映射写入共用稳定 id 写锁；SQLite 在 SAVEPOINT 前启动真实写事务，后续失败整体回滚。工作台支持新增/编辑/改名/模型回填/删前使用列表及 409 兜底；Agent 主/降级选择和模型对比备注使用动态目录，环境来自服务端。读写仍分别要求 `config:read`/`config:write`。
+- `[migration]` **`0012_editable_brain_profiles`**：新增 `brain_profiles`、`brain_profile_aliases` 两表，总表数 30→32；`brain_mappings.profile`、`runs.brain_profile` 从 16 扩至 64 字符，登记合法历史标识而不改写快照。升级用 `luban migrate`；回滚 `alembic downgrade -1` 只允许未编辑预设及预设历史数据，存在 custom/编辑名称用途/历史 alias/墓碑/非预设历史标识时拒绝，先备份并协调配置，绝不静默丢数据。启动播种不复活已删除或已改名预设。
+- `[shared]` OpenAPI、前端类型和既有规格/PRD/设计/手册/升级说明同步；新增 `BRAIN_PROFILE_NOT_FOUND`（404）、`BRAIN_PROFILE_CONFLICT`（409）、`BRAIN_PROFILE_IN_USE`（409），统一错误码总数为 32。SQLite 迁移及独立会话并发有回归覆盖；本地 MySQL 5.7 并发探针不是受支持 MySQL 8.0+ 全迁移验证，后者以 CI 为准。
+
 ### 平台日志、诊断与 RBAC
 
 - `[framework]` **统一执行日志关联**：`core/log_context` 用 ContextVar 贯穿 `request_id`、`session_id`、`run_id`、`trace_id`、`parent_run_id`、`root_run_id` 和 `subject`；同步线程经 `anyio.to_thread` 继承上下文。`RunRequest` 新增 `request_id`、`root_run_id`、`subject`，API 创建 Run 时传入；runtime、图/团队子 Run 和工具执行复用同一关联链。HTTP 中间件为每个响应追加 `X-Request-ID`，错误响应也保留该 ID；它只用于日志过滤，不落 `runs` 表。
@@ -17,6 +28,7 @@
 - `[framework]` **日志保留清理启动修复**：首次 flush 即执行保留期清理，不再依赖机器 uptime；成功后每小时清理，失败保留旧清理时间并在下次 flush 重试。API、schema、权限与生产日志写入失败丢批次语义不变。
 - `[framework]` **诊断 API 与工作台**：新增 `GET /v1/logs`（关联 ID、级别、logger、关键词、时间、分页过滤）、`GET /v1/diagnostics/runs`（session/run/trace/user/status 过滤）、`GET /v1/diagnostics/runs/{run_or_trace_id}`（根 Run、后代 Run、Trace 事件与日志数量）。`RunRepository` 提供真实父子树查询和诊断分页；诊断展示层脱敏历史 Run 输入输出。工作台新增 `/diagnostics` 页面。
 - `[framework]` **平台账号与 RBAC**：新增数据库用户、角色、权限、用户角色映射和哈希会话表；提供登录、当前身份、退出与用户/角色/权限管理 API。内置 10 个权限和 admin/operator/auditor/viewer 四个默认角色；后端在每个 `/v1` 请求逐路径裁决，UI 菜单和路由 guard 只是展示层。Master API Key 保持 bootstrap admin，自定义 AuthProvider 优先级保留且只信任服务端 scopes。`/security` 页面支持管理；前端权限来自 `/v1/auth/me` 并只在内存保存令牌。生产必须 `AUTH_ENABLED=true`；`AUTH_DATABASE_ENABLED=true` 可无 API Key 启动，`LUBAN_ADMIN_PASSWORD` 为 12–256 位一次性引导密码，无默认密码。令牌只存 SHA-256 哈希，默认 8 小时；禁用、改密和退出立即撤销，角色/权限变化不撤销会话、经每请求重载立即生效。
+- `[framework]` **虚拟形象可选显示**：`AgentDefinition` 新增 `show_avatar`（默认 `true`），随 Agent 定义进入既有 `agent_versions.definition` JSON，无数据库迁移。YAML 顶层支持该布尔键：缺省/导出 `true` 省略，`false` 保留；非布尔导入报错。Agent 编辑器「身份」区新增「显示虚拟形象」开关，保存为新版本后生效；旧版本、旧 YAML 和旧 JSON 缺字段按 `true` 解释，不改写存量快照。关闭后 `/chat` 不挂载陪伴栏、不请求形象资源、不加载 3D 渲染器，对话区使用释放的宽度；`avatar` 文件名与文件保留，切换 Agent 跟随各自设置，同一 Agent 的显示变化不重置会话或历史。这只是展示设置，不是访问控制；已鉴权头像接口仍可用，版本保存权限不变。OpenAPI 快照与前端类型已同步。
 - `[migration]` **`0011_correlated_logs_access_control`**：新建 `application_logs`（含 6 个查询索引）与 `permissions`、`roles`、`role_permissions`、`users`、`user_roles`、`auth_sessions` 共 7 张表；模型层实测总表数从 23 增至 30。升级：`luban migrate`；回滚：`alembic downgrade -1` 删除这 7 张表。含日志或账号会话数据时先备份。
 
 ### Super-agent 对照借鉴落地

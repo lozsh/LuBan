@@ -47,7 +47,7 @@ lubanagent-repo/
 │   │   ├── prompt.py                 #   PromptDefinition / PromptVersion（Prompt 库一等实体）
 │   │   ├── run.py                    #   Run / RunStatus / RunContext[Deps]
 │   │   ├── trace.py                  #   Trace / TraceEvent / Step
-│   │   ├── brain.py                  #   BrainProfile (fast/smart/cheap/vision)
+│   │   ├── brain.py                  #   可扩展 BrainProfile 标识（四个初始常量兼容）
 │   │   ├── model.py                  #   ModelDefinition / ModelCapability
 │   │   ├── tool.py                   #   ToolDescriptor / RiskLevel / ToolContract
 │   │   ├── budget.py                 #   Budget / TokenEstimate
@@ -275,7 +275,7 @@ flowchart TB
 | `lubanagent.knowledge` | 最小 RAG 管线 + Connector 协议 + 防错答守门（阈值/时效/全 miss 拒答短路，`KnowledgeConfig` 三字段，短路执行点在 runtime `agent_loop`） | 不做复杂重排/多库联邦 |
 | `lubanagent.memory` | 会话/摘要/长期记忆策略 | 不强制启用 |
 | `lubanagent.observability` | Trace 写库 + 评测 + 成本 + 外发适配器 | 不依赖外部 SaaS 才能跑 |
-| `lubanagent.persistence` | SQLAlchemy 模型 + 仓储 + Alembic | 不含业务规则 |
+| `lubanagent.persistence` | SQLAlchemy 模型 + 仓储 + Alembic；槽位目录、别名、不可变 Agent 版本与共享写锁约束 | 不含 Agent 执行策略；目录引用完整性由仓储强制 |
 | `lubanagent.api` | REST/SSE 路由 + 鉴权/RBAC 裁决 + 错误映射 + 平台日志/诊断查询 | 不含业务逻辑；不做租户/部门行级数据范围 |
 | `lubanagent.config` | 环境化配置 | 不读用户业务配置 |
 | `lubanagent.app` | `create_app()` 装配 + lifespan | 不注册业务路由 |
@@ -287,6 +287,8 @@ flowchart TB
 | `app.main` 注册项 | 在 `app/main.py` 内注册 AuthProvider/ObservabilityBackend/Hook/SkillRegistry/KnowledgeSource | 不实现框架默认项 |
 | `app.api/*` | 业务自定义路由 | 不挂框架内部路由 |
 | `lubanagent-channels/*` | **商用渠道层**：ChannelConnector 实现 + 会话状态机 + 出站风控 + 渠道可靠性 | 不进开源仓库；单向依赖 `lubanagent/`、反向禁止；不装也能跑 |
+
+大脑槽位由 `core.BrainProfile` 校验标识格式，`persistence.ModelRepository` 管目录身份、统一当前/历史别名、环境映射和引用完整性，`model.BrainResolver` 只消费映射抽象，UI 不做最终裁决。改名保留旧别名并移动全部环境映射，不改写 Agent/Run 快照；Agent 保存、改名、删除、映射写入共用稳定目录 id 的 guarded UPDATE 锁，保存按 id 排序并去重别名。删除持锁后当前读全部可运行历史版本的主/降级/摘要依赖，使用中返回 409；无引用才留墓碑，播种不复活。目录/映射读取需 `config:read`，写入需 `config:write`；SQLite 在 nested SAVEPOINT 前开启真实写事务，保证目录及可选映射失败整体回滚。
 
 ---
 
@@ -517,7 +519,7 @@ pip install -e .       # 如有 [framework] 依赖变更
 | 功能 | 启用方式 / 归属 | 框架领地（`lubanagent/`） | 用户领地（`app/`） | 备注 |
 | --- | --- | --- | --- | --- |
 | F1 Agent 定义与版本化 | 默认 | `core/definition.py`、`core/prompt.py`（Prompt 库一等实体）、`persistence/models/agent*`、`persistence/models/prompt*`、`persistence/repositories/agent.py`、`persistence/repositories/prompt.py`（含 `resolve_prompt_reference`）、`api/routes/prompts.py`、`cli/`（import/export） | `app/agents/*.yaml`（初始化/导出，纯内嵌指令语法不变） | 运行期主存储是 DB，YAML 仅 init/export；Agent 定义可经 `prompt_key`/`prompt_version` 引用 Prompt 库，解析在落库前（内容写入 instructions 落进版本快照），运行期只读快照、不回查 `prompts` 表 |
-| F2 模型中心与工厂 | 默认 | `model/factory.py`、`model/openai_compat.py`、`model/brain_resolver.py`、`model/capability.py`、`persistence/models/model*` | 无（厂商适配全在框架） | 新增厂商 = 在 `lubanagent/model/` 加工厂代码（框架领地，PR 上游） |
+| F2 模型中心与工厂 | 默认 | `model/factory.py`、`model/openai_compat.py`、`model/brain_resolver.py`、`model/capability.py`、`persistence/models/model*`、`persistence/repositories/model.py` | 无（厂商适配全在框架） | 新增槽位 = 改库目录/环境映射；新增厂商 = 在 `lubanagent/model/` 加工厂代码（框架领地，PR 上游） |
 | F3 Agent Runtime | 默认 | `runtime/agent_loop.py`、`runtime/context_builder.py`、`runtime/budget_guard.py`、`runtime/sse.py` | 无 | 普通 Agent = LangGraph prebuilt agent + 治理包装，不重写循环 |
 | F4 Tool/MCP 治理 | 默认 | `tool/executor.py`、`tool/approval.py`、`tool/mock.py`、`mcp/client.py`、`mcp/server.py` | `app/tools/*`（业务 Tool，`@tool` 自动注册）、`app/main.py`（MCP 手动登记） | 业务 Tool 是 Python 代码，落用户领地 |
 | F5 运行观测 | 默认 | `observability/trace/`、`observability/adapters/`、`persistence/models/trace.py`（含 `export_failures` 表） | `app/main.py`（可选 `register_observability_backend` 自定义后端） | Trace 内部 DB 为 source of truth；外发后端可插拔 |

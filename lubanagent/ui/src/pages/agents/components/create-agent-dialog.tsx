@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { useCreateAgent, type BrainProfile } from '@/api/hooks';
+import { useBrainProfiles, useCreateAgent, type BrainProfile } from '@/api/hooks';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -27,7 +27,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
-import { BRAIN_PROFILES, emptyAgentDefinition } from '../lib/agent-form';
+import { brainProfileOptions, defaultBrainProfile, emptyAgentDefinition } from '../lib/agent-form';
 
 const KEY_PATTERN = /^[a-z0-9][a-z0-9-_]*$/;
 
@@ -39,12 +39,17 @@ interface CreateAgentDialogProps {
 export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps) {
   const navigate = useNavigate();
   const createAgent = useCreateAgent();
+  const profilesQuery = useBrainProfiles();
+  const slots = profilesQuery.data?.items ?? [];
 
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [profile, setProfile] = useState<BrainProfile>('smart');
+  const [profile, setProfile] = useState<BrainProfile | ''>('');
+  const selectedProfile = slots.some((slot) => slot.key === profile)
+    ? profile
+    : defaultBrainProfile(slots);
   const [formError, setFormError] = useState<string | null>(null);
 
   const reset = () => {
@@ -52,7 +57,7 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
     setName('');
     setDescription('');
     setInstructions('');
-    setProfile('smart');
+    setProfile('');
     setFormError(null);
     createAgent.reset();
   };
@@ -66,13 +71,17 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
       setFormError('key 只能包含小写字母、数字、中划线与下划线');
       return;
     }
+    if (!selectedProfile || !profilesQuery.isSuccess) {
+      setFormError('请先在模型中心配置可用的大脑槽位');
+      return;
+    }
     setFormError(null);
     const definition = emptyAgentDefinition(
       key.trim(),
       name.trim(),
       description.trim(),
       instructions,
-      profile,
+      selectedProfile,
     );
     createAgent.mutate(definition, {
       onSuccess: (created) => {
@@ -140,19 +149,22 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
           </div>
           <div className="space-y-1.5">
             <Label>逻辑大脑槽位</Label>
-            <Select value={profile} onValueChange={(value) => setProfile(value as BrainProfile)}>
+            <Select value={selectedProfile} onValueChange={setProfile}>
               <SelectTrigger aria-label="逻辑大脑槽位">
-                <SelectValue />
+                <SelectValue placeholder="请先在模型中心新增槽位" />
               </SelectTrigger>
               <SelectContent>
-                {BRAIN_PROFILES.map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {item}
+                {brainProfileOptions(slots).map((item) => (
+                  <SelectItem key={item.key} value={item.key}>
+                    {item.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
+          {profilesQuery.error && (
+            <p className="text-sm text-destructive">槽位加载失败：{profilesQuery.error.message}</p>
+          )}
           {formError && <p className="text-sm text-destructive">{formError}</p>}
           {createAgent.error && (
             <p className="text-sm text-destructive">{createAgent.error.message}</p>
@@ -162,7 +174,11 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button type="button" disabled={createAgent.isPending} onClick={submit}>
+          <Button
+            type="button"
+            disabled={createAgent.isPending || !selectedProfile || !profilesQuery.isSuccess}
+            onClick={submit}
+          >
             {createAgent.isPending ? '创建中…' : '创建'}
           </Button>
         </DialogFooter>

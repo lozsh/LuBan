@@ -2,8 +2,8 @@
  * /chat 用户端聊天页（示例级入口，不在 AppShell 布局壳内）：
  * 无侧边栏全屏聊天，面向最终用户——选 Agent、多轮对话（流式）、
  * 工具调用显示为状态行、大额操作页内审批、终态后 markdown 渲染。
-* 定位边界：不做用户注册/登录/会话列表持久化；生产用户端由业务系统自建走 REST/SSE。
-* 鉴权（H13）：请求自动携带工作台内存态 API Key（见 lib/auth.ts；AUTH_ENABLED=false 时无需提供）。
+ * 定位边界：不做用户注册/登录/会话列表持久化；生产用户端由业务系统自建走 REST/SSE。
+ * 鉴权（H13）：请求自动携带工作台内存态 API Key（见 lib/auth.ts；AUTH_ENABLED=false 时无需提供）。
  */
 
 import { ArrowLeft, MessageCircle, RotateCcw, Send, Square } from 'lucide-react';
@@ -166,51 +166,56 @@ export default function ChatPage() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* 左侧陪伴区：大号虚拟形象站在聊天区旁（窄屏收起，无形象回退图标） */}
-        <aside className="hidden w-72 shrink-0 items-center justify-center border-r md:flex">
-          {selectedAgent ? (
-            <AgentAvatar agent={selectedAgent} size={224} speaking={streaming} />
-          ) : (
-            <MessageCircle className="h-24 w-24 shrink-0 text-primary" />
-          )}
-        </aside>
+        {/* 关闭时不挂载陪伴区，也不请求形象资源；旧定义默认显示。 */}
+        {selectedAgent?.show_avatar !== false && (
+          <aside
+            aria-label="Agent 虚拟形象"
+            className="hidden w-72 shrink-0 items-center justify-center border-r md:flex"
+          >
+            {selectedAgent ? (
+              <AgentAvatar agent={selectedAgent} size={224} speaking={streaming} />
+            ) : (
+              <MessageCircle className="h-24 w-24 shrink-0 text-primary" />
+            )}
+          </aside>
+        )}
 
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
             <div className="mx-auto max-w-3xl space-y-4">
-          {turns.length === 0 && currentInput === null && selectedAgent?.greeting && (
-            <div className="flex">
-              <div className="rounded-lg bg-muted px-4 py-3 text-sm leading-6">
-                {selectedAgent.greeting}
-              </div>
-            </div>
-          )}
+              {turns.length === 0 && currentInput === null && selectedAgent?.greeting && (
+                <div className="flex">
+                  <div className="rounded-lg bg-muted px-4 py-3 text-sm leading-6">
+                    {selectedAgent.greeting}
+                  </div>
+                </div>
+              )}
 
-          {turns.map((turn, index) => (
-            <TurnBlock key={index} input={turn.input}>
-              <AssistantBubble
-                events={turn.events}
-                status="done"
-                error={null}
-                onDecide={onDecide}
-                decidingApprovalId={decidingId}
-              />
-            </TurnBlock>
-          ))}
+              {turns.map((turn, index) => (
+                <TurnBlock key={index} input={turn.input}>
+                  <AssistantBubble
+                    events={turn.events}
+                    status="done"
+                    error={null}
+                    onDecide={onDecide}
+                    decidingApprovalId={decidingId}
+                  />
+                </TurnBlock>
+              ))}
 
-          {currentInput !== null && (
-            <TurnBlock input={currentInput}>
-              <AssistantBubble
-                events={stream.events}
-                status={stream.status}
-                error={stream.error}
-                onDecide={onDecide}
-                decidingApprovalId={decidingId}
-                errorStatus={stream.errorStatus}
-              />
-            </TurnBlock>
-          )}
-          <div ref={bottomRef} />
+              {currentInput !== null && (
+                <TurnBlock input={currentInput}>
+                  <AssistantBubble
+                    events={stream.events}
+                    status={stream.status}
+                    error={stream.error}
+                    onDecide={onDecide}
+                    decidingApprovalId={decidingId}
+                    errorStatus={stream.errorStatus}
+                  />
+                </TurnBlock>
+              )}
+              <div ref={bottomRef} />
             </div>
           </div>
 

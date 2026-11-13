@@ -175,7 +175,7 @@ python scripts/check_upstream_guard.py --base upstream/master --include-worktree
 
 **是什么**：每次含 `[migration]` 标签的发布，需要执行 Alembic 迁移把库表升级到最新 schema。
 
-**为什么**：LubanAgent 的 Agent 定义、模型映射、Run/Trace、评测、审批记录、平台日志和访问控制等是库内记录（架构 §4："定义本体是数据库记录，运行期可改、库内版本化"），schema 与代码强绑定。审批记录自迁移 `0010` 起落 `approvals` 表；统一关联日志和平台 RBAC 自迁移 `0011` 起落 `application_logs` 与 6 张 security 表。
+**为什么**：LubanAgent 的 Agent 定义、模型映射、Run/Trace、评测、审批记录、平台日志和访问控制等是库内记录（架构 §4："定义本体是数据库记录，运行期可改、库内版本化"），schema 与代码强绑定。可编辑大脑目录及别名自迁移 `0012` 起落两张表，映射/Run 标识扩为 64 字符。审批记录自迁移 `0010` 起落 `approvals` 表；统一关联日志和平台 RBAC 自迁移 `0011` 起落 `application_logs` 与 6 张 security 表。
 
 **怎么用**：
 
@@ -204,7 +204,7 @@ alembic current
 
 MySQL 驱动需装可选依赖：`uv pip install -e ".[mysql]"`。
 
-**边界**：迁移链是线性的（当前 `0001 → … → 0011`），不能跳版本。回滚 `downgrade base` 会删表，生产环境务必先备份。三向迁移冒烟（upgrade → downgrade → upgrade）已在 CI 固化，但那只验证 schema 可逆，不验证你的业务数据可逆。
+**边界**：迁移链是线性的（当前 `0001 → … → 0012`），不能跳版本。回滚 `downgrade base` 会删表，生产环境务必先备份。三向迁移冒烟（upgrade → downgrade → upgrade）已在 CI 固化，但不代表你的业务数据可逆；`0012` 存在自定义、编辑过、改名或已删除槽位等配置时会拒绝降级，见下节。
 
 ---
 
@@ -238,8 +238,20 @@ uv pip install --python .venv/bin/python -e ".[docs]"
 
 **审批 Python API 破坏性变更（库内嵌消费方必读）**：`ApprovalManager` 的 `create_request`/`decide`/`get`/`pending` 由同步改为 **async**，`decide` 现在返回终结态 `ApprovalRequest`（原先返回 None）。按旧同步写法调用的代码不会报错但会**静默失效**（拿到 coroutine 未 await），升级时须补 `await`，例如 `request = await manager.create_request(...)`、`resolved = await manager.decide(id, True)`。`ApprovalRequest` 领域对象已从 `lubanagent.tool` 迁至 `lubanagent.core`（`from lubanagent.core import ApprovalRequest`）；`lubanagent.tool` 保留 re-export，旧 import 路径仍可用。
 
-**平台日志与 RBAC（Unreleased）**：合并后必须执行 `0011` 迁移，新增 7 张表；当前模型层表数实测为 30。生产保持 `AUTH_ENABLED=true`。要在无 `API_KEY` 时使用数据库账号，设 `AUTH_DATABASE_ENABLED=true`；首次空库引导可设置 `LUBAN_ADMIN_PASSWORD`（12–256 位）。旧 `API_KEY` 仍可作为 bootstrap admin 破窗身份，自定义 AuthProvider 优先级不变且只信任服务端 scopes；鉴权开启但无 API Key、无 provider 且数据库账号模式关闭时装配 fail fast。默认角色为 admin 全量、operator 配置/运行/审批/诊断/评测、auditor 只读加诊断、viewer 只读无诊断；不要把该 RBAC 扩展解释成租户、部门或行级授权。日志默认入库并保留 30 天；有界异步队列满或写入失败可能丢批次，业务不因日志失败中断，`/v1/logs` 暴露 `dropped_count` 和 `write_failures`。工作台账号/API Key 双登录令牌只存内存，刷新需重新认证；后端授权是唯一安全边界。
+**平台日志与 RBAC（Unreleased）**：合并后必须执行 `0011` 迁移，新增 7 张表（该 revision 后为 30 张，叠加 `0012` 后当前为 32 张）。生产保持 `AUTH_ENABLED=true`。要在无 `API_KEY` 时使用数据库账号，设 `AUTH_DATABASE_ENABLED=true`；首次空库引导可设置 `LUBAN_ADMIN_PASSWORD`（12–256 位）。旧 `API_KEY` 仍可作为 bootstrap admin 破窗身份，自定义 AuthProvider 优先级不变且只信任服务端 scopes；鉴权开启但无 API Key、无 provider 且数据库账号模式关闭时装配 fail fast。默认角色为 admin 全量、operator 配置/运行/审批/诊断/评测、auditor 只读加诊断、viewer 只读无诊断；不要把该 RBAC 扩展解释成租户、部门或行级授权。日志默认入库并保留 30 天；有界异步队列满或写入失败可能丢批次，业务不因日志失败中断，`/v1/logs` 暴露 `dropped_count` 和 `write_failures`。工作台账号/API Key 双登录令牌只存内存，刷新需重新认证；后端授权是唯一安全边界。
 **数据库鉴权引导（Unreleased）**：数据库账号模式下，无活跃 admin、无 API Key/provider 且未设置 `LUBAN_ADMIN_PASSWORD` 时，首次启动 lifespan 直接 `CONFIG_ERROR`；已有活跃 admin 重启不要求引导密码。角色/权限变化不撤销既有会话，靠每请求重载实时生效；仅默认 admin 角色受 protected 不可删除。
+
+**虚拟形象显示（Unreleased）**：Agent 定义新增 `show_avatar`，默认 `true`；无需数据库迁移。旧版本 JSON、旧 YAML 和未显式传值的 API 请求继续按显示处理，原 `agent_versions.definition` 不会被批量回写。只有把某 Agent 明确改为 `false` 并保存新版本，聊天页才会隐藏形象区域；已上传形象文件保留，重新开启不需要重新上传。
+
+**可编辑大脑槽位（Unreleased）**：合并后执行 `luban migrate` 到 `0012`，新增 `brain_profiles` / `brain_profile_aliases`，总表数为 32，并将映射/Run 槽位字段从 16 扩为 64 字符。迁移登记现有 Agent 全版本、Run、映射中的合法标识，保留历史记录；遇到不符合 `^[a-z][a-z0-9_-]{0,63}$` 的历史标识会在建表前拒绝，先备份并协调这些值。
+
+消费端不要再枚举 `BrainProfile` 或硬编码四项作为目录：改读 `GET /v1/brain-profiles`（`{env,items}`），环境使用响应中的 env；GET/PUT `/v1/brain-mappings` 支持实际目录。Python 四个常量和 `.value` 保留，但 OpenAPI 为受约束 string，前端重新生成类型。目录可新增、编辑和改名；改名留旧别名并移动全部环境映射，不改写历史 Agent/Run，新保存版本使用当前标识。读需 `config:read`，写需 `config:write`。
+
+删除检查所有可运行 Agent 历史版本的主槽位、降级槽位及摘要记忆隐含 cheap：只改当前版本不能解除旧引用，使用中返回 409 `BRAIN_PROFILE_IN_USE`（details 含 Agent/版本/字段）且映射不变。未使用预设也可删除，重启/init 不复活墓碑或改名配置；若删了 smart/cheap，后续默认 Agent、CLI judge 或摘要功能需显式重新配置。POST 相同已删除当前 key 可重新启用原身份，但不会恢复旧映射。
+
+回滚 `alembic downgrade -1` 只支持未编辑的四个预设及预设历史数据；有自定义/已改名/已删除槽位、编辑过的名称/用途、历史 alias 或非预设 Agent/Run/映射标识时会拒绝，不截断、不丢配置。先备份并人工协调，再决定是否回滚。生产支持仍是 MySQL 8.0+；本地 MySQL 5.7 独立会话并发验证不等于支持 5.7 或已完成 MySQL 8 全迁移（旧 `0001` 的 CURRENT_TIMESTAMP 语法不兼容 5.7），MySQL 8 以 CI 为准。
+
+**文档站起源与使用约定（Unreleased）**：纯 `[shared]` 文档站变更，正常合并即可，不改变平台 API / 数据库契约。文档站首页新增起源板块；代码块复制自动排除解释性注释（字符串、heredoc、YAML 提示词、shebang/许可证 pragma 保留，手工选中复制不受影响）。全站包含"在线文档使用约定"折叠条与每页 `robots` meta，构建按 `DOCS_BASE` 生成 `robots.txt`；该声明是使用请求而非技术防下载，不限制浏览器正常缓存，不撤回 Apache-2.0 授权。GitHub Pages 项目页的 `/LuBan/robots.txt` 不是标准爬虫入口；自有域名部署时把生成的 `robots.txt` 放到域名根目录。
 
 **模型参数与连接边界收紧（H06）**：模型定义的 `params` 默认收紧为受控白名单——`openai_compat` 工厂仅允许推理与计价字段（`temperature`/`max_tokens`/`top_p`/`frequency_penalty`/`presence_penalty`/`n`/`stop`/`seed`/`timeout`/`max_retries`/`streaming`/`input_price_per_1k`/`output_price_per_1k`，`lubanagent/core/model.py:59-75`）；`base_url` 拒绝携带凭证（userinfo）、查询参数或片段的连接地址，`params` 拒绝覆盖连接字段（`model`/`api_key`/`base_url`/`default_headers`/`http_client`/`proxy` 等）与秘密形键（`*apikey`/`token`/`password`/`secret`/`credential` 等）。此前任意 `params` 会透传给 `ChatOpenAI` 构造并全量回显；**存量含自定义 `params` 的模型定义升级后执行会被拒绝**（`create_openai_compatible` 构造入口统一校验，`lubanagent/model/openai_compat.py:27-35`），需把自定义参数迁移为白名单字段或移除；工作台模型列表对白名单外字段只显示 `[REDACTED]`（`lubanagent/api/routes/models.py:14-25`）。本地 vLLM/Ollama 等 OpenAI 兼容内网地址不受影响（`base_url` 只禁凭证/查询/片段，不一刀切禁内网）。
 

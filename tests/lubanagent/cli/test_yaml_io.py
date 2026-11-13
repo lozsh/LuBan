@@ -72,6 +72,7 @@ def test_from_yaml_full_mapping() -> None:
 
 def test_from_yaml_minimal_defaults() -> None:
     definition = definition_from_yaml(MINIMAL)
+    assert definition.show_avatar is True
     assert definition.brain.profile is BrainProfile.SMART
     assert definition.tools == []
     assert definition.mcp_servers == []
@@ -81,6 +82,30 @@ def test_from_yaml_minimal_defaults() -> None:
     assert definition.boundary.max_steps == 16
     assert definition.boundary.budget is None
     assert definition.io.output_schema is None
+
+
+@pytest.mark.parametrize("show_avatar", [True, False])
+def test_avatar_display_yaml_round_trip(show_avatar: bool, tmp_path) -> None:
+    data = {**MINIMAL, "avatar": "avatar.svg", "show_avatar": show_avatar}
+    path = tmp_path / "agent.yaml"
+    dump_yaml_file(data, path)
+    definition = definition_from_yaml(load_yaml_file(path))
+    assert definition.show_avatar is show_avatar
+    exported = definition_to_yaml(definition)
+    assert exported["avatar"] == "avatar.svg"
+    if show_avatar:
+        assert "show_avatar" not in exported
+    else:
+        assert exported["show_avatar"] is False
+    assert definition_from_yaml(exported).show_avatar is show_avatar
+
+
+@pytest.mark.parametrize("value", ["false", "true", 0, 1, None, [], {}])
+def test_avatar_display_yaml_rejects_non_booleans(value: Any) -> None:
+    with pytest.raises(LubanError) as exc:
+        definition_from_yaml({**MINIMAL, "show_avatar": value})
+    assert exc.value.code is ErrorCode.VALIDATION_ERROR
+    assert exc.value.details["field"] == "show_avatar"
 
 
 def test_memory_variants() -> None:
@@ -131,11 +156,21 @@ def test_missing_name_and_instruction() -> None:
 
 def test_invalid_brain() -> None:
     with pytest.raises(LubanError) as exc:
-        definition_from_yaml({**MINIMAL, "brain": "genius"})
+        definition_from_yaml({**MINIMAL, "brain": "invalid/slot"})
     assert exc.value.code is ErrorCode.VALIDATION_ERROR
     with pytest.raises(LubanError) as exc:
-        definition_from_yaml({**MINIMAL, "fallbacks": ["genius"]})
+        definition_from_yaml({**MINIMAL, "fallbacks": ["invalid/slot"]})
     assert exc.value.code is ErrorCode.VALIDATION_ERROR
+
+
+def test_custom_brain_and_fallback_yaml_round_trip() -> None:
+    data = {**MINIMAL, "brain": "deep_reasoning", "fallbacks": ["batch-small", "fast"]}
+    definition = definition_from_yaml(data)
+    assert definition.brain.profile.value == "deep_reasoning"
+    exported = definition_to_yaml(definition)
+    assert exported["brain"] == "deep_reasoning"
+    assert exported["fallbacks"] == ["batch-small", "fast"]
+    assert _strip(definition_from_yaml(exported)) == _strip(definition)
 
 
 def test_round_trip_full_lossless() -> None:
@@ -147,7 +182,15 @@ def test_round_trip_full_lossless() -> None:
 def test_round_trip_minimal_lossless_and_empty_omitted() -> None:
     definition = definition_from_yaml(MINIMAL)
     data = definition_to_yaml(definition)
-    for key in ("description", "fallbacks", "tools", "mcp_servers", "skills", "knowledge"):
+    for key in (
+        "description",
+        "fallbacks",
+        "tools",
+        "mcp_servers",
+        "skills",
+        "knowledge",
+        "show_avatar",
+    ):
         assert key not in data
     restored = definition_from_yaml(data)
     assert _strip(restored) == _strip(definition)

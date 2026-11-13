@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from lubanagent.core import (
     AgentDefinition,
@@ -50,13 +50,71 @@ class BrainMappingSetRequest(BaseModel):
 
     profile: BrainProfile
     model_key: str
-    env: str | None = None
+    env: str | None = Field(default=None, min_length=1, max_length=32)
 
 
 class BrainMappingOut(BaseModel):
     env: str
     profile: BrainProfile
     model_key: str
+
+
+class BrainProfileCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: BrainProfile
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=512)
+    model_key: str | None = Field(default=None, min_length=1, max_length=128)
+    env: str | None = Field(default=None, min_length=1, max_length=32)
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def strip_text(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+
+class BrainProfilePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: BrainProfile | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=512)
+    model_key: str | None = Field(default=None, min_length=1, max_length=128)
+    env: str | None = Field(default=None, min_length=1, max_length=32)
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def strip_text(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+
+class BrainProfileOut(BaseModel):
+    key: BrainProfile
+    name: str
+    description: str
+    aliases: list[BrainProfile]
+    reference_count: int
+    agent_count: int
+
+
+class BrainProfilesOut(BaseModel):
+    env: str
+    items: list[BrainProfileOut]
+
+
+class BrainProfileReference(BaseModel):
+    agent_key: str
+    agent_name: str
+    version: int
+    current: bool
+    field: str
+
+
+class BrainProfileReferencesOut(BaseModel):
+    key: BrainProfile
+    agent_count: int
+    references: list[BrainProfileReference]
 
 
 class TraceOut(BaseModel):

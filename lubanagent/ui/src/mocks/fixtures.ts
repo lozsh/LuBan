@@ -12,6 +12,7 @@ type AgentDefinition = components['schemas']['AgentDefinition'];
 type AgentVersion = components['schemas']['AgentVersion'];
 type ApprovalOut = components['schemas']['ApprovalOut'];
 type BrainMappingOut = components['schemas']['BrainMappingOut'];
+type BrainProfileOut = components['schemas']['BrainProfileOut'];
 type ModelDefinitionOut = components['schemas']['ModelDefinitionOut'];
 type Run = components['schemas']['Run'];
 type SkillOut = components['schemas']['SkillOut'];
@@ -31,6 +32,7 @@ export const agents: AgentDefinition[] = [
     instructions: '你是 {company} 的客服专员，先安抚再解决，退款必须走审批。',
     greeting: '你好，我是 LubanAgent。请问有什么可以帮你？',
     avatar: 'avatar.svg',
+    show_avatar: true,
     prompt_variables: { company: 'Luban 商店' },
     status: 'published',
     version: 3,
@@ -63,6 +65,7 @@ export const agents: AgentDefinition[] = [
     role: '资深工程师',
     instructions: '回答先给结论，代码块用 markdown。',
     greeting: '',
+    show_avatar: true,
     prompt_variables: {},
     status: 'draft',
     version: 1,
@@ -166,6 +169,41 @@ export const models: ModelDefinitionOut[] = [
 ];
 
 // ---- 大脑映射（四槽位） ----
+export const brainProfiles: BrainProfileOut[] = [
+  {
+    key: 'fast',
+    name: 'fast',
+    description: '低时延响应',
+    aliases: [],
+    reference_count: 4,
+    agent_count: 2,
+  },
+  {
+    key: 'smart',
+    name: 'smart',
+    description: '主力推理',
+    aliases: [],
+    reference_count: 3,
+    agent_count: 1,
+  },
+  {
+    key: 'cheap',
+    name: 'cheap',
+    description: '成本敏感、记忆摘要',
+    aliases: [],
+    reference_count: 3,
+    agent_count: 1,
+  },
+  {
+    key: 'vision',
+    name: 'vision',
+    description: '多模态识图',
+    aliases: [],
+    reference_count: 0,
+    agent_count: 0,
+  },
+];
+
 export const brainMappings: BrainMappingOut[] = [
   { env: 'dev', profile: 'fast', model_key: 'qwen-plus' },
   { env: 'dev', profile: 'smart', model_key: 'deepseek-chat' },

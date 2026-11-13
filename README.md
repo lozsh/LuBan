@@ -8,7 +8,7 @@
 
 用 LangChain 写个 Agent demo，一个下午就够。难的是往后那一步：预算失控没人拦，费用算不清归谁，高风险操作靠 Prompt 自觉，换个模型要改代码发版，Run 崩了连现场都查不到。很多团队在这个坎上把原型扔掉，从头再造一遍治理。
 
-Java 圈二十年前就用 Spring Boot 脚手架回答过这个问题：别让每个团队重复拼工程。LubanAgent 想给 Python Agent 圈当这个脚手架。它是开源（Apache-2.0）的 Agent 工程基座，克隆仓库、配一个模型，第一天就能写自己的业务 Agent；确定性规则由代码执行，预算、审批、崩溃恢复内建，改了源码也能长期跟上游升级。
+Java 生态的成熟脚手架给过一个思路：别让每个团队重复拼工程。LubanAgent 由此选择若依式的交付方式，在 LangChain / LangGraph 之上组装一份能继续开发、独立部署和跟上游升级的完整工程，不再造一个 Agent 引擎。它按 Apache-2.0 开源，克隆仓库、配一个模型，就能开始写自己的业务 Agent；确定性规则由代码执行，预算、审批、运行记录与部署一起交付。
 
 > **English**: Agent demos are easy in Python; production is not — budget overruns, unclear cost attribution, prompts acting as governance, models hardcoded. LubanAgent is the missing engineering base (Apache-2.0) on Python ≥3.11 + LangChain + LangGraph: clone the repo, plug in a model, and ship your own agents on day one. It layers what teams otherwise rebuild themselves on top of LangGraph: versioned agent definitions in DB, a model factory with fast/smart/cheap/vision slots, governance with trace/budget/timeout, and a deployable workbench. See [README.en.md](docs/README.en.md).
 

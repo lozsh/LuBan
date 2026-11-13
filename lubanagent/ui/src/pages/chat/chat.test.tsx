@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { server } from '@/mocks/node';
+import { agents } from '@/mocks/fixtures';
 
 import ChatPage from './ChatPage';
 
@@ -60,8 +61,9 @@ beforeAll(() => {
   }
 });
 
-function renderPage() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPage(
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/chat']}>
@@ -299,5 +301,100 @@ describe('ChatPage（/chat 用户端聊天）', () => {
     await waitFor(() => expect(decideBodies.length).toBe(1), { timeout: 3000 });
     expect(decideBodies[0].id).toBe('appr-001');
     expect(decideBodies[0].body).toEqual({ approved: true, decided_by: 'chat-user' });
+  });
+});
+
+describe('ChatPage — 可选虚拟形象', () => {
+  it('旧定义没有显示字段时仍展示形象', async () => {
+    server.use(
+      http.get('*/v1/agents', () => HttpResponse.json([{ ...agents[0], show_avatar: undefined }])),
+    );
+    renderPage();
+    expect(await screen.findByTestId('agent-avatar-img')).toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: 'Agent 虚拟形象' })).toBeInTheDocument();
+  });
+
+  it.each(['avatar.svg', 'avatar.glb', null])(
+    '关闭显示时不挂载陪伴栏、不请求形象资源（%s）',
+    async (avatar) => {
+      const avatarRequests: string[] = [];
+      server.use(
+        http.get('*/v1/agents', () =>
+          HttpResponse.json([{ ...agents[0], avatar, show_avatar: false }]),
+        ),
+        http.get('*/v1/agents/:key/avatar', ({ request }) => {
+          avatarRequests.push(request.url);
+          return new HttpResponse('<svg/>', { headers: { 'Content-Type': 'image/svg+xml' } });
+        }),
+      );
+      renderPage();
+      await screen.findByText(/你好，我是 LubanAgent/);
+      expect(
+        screen.queryByRole('complementary', { name: 'Agent 虚拟形象' }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId('agent-avatar-img')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('agent-avatar-3d')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('agent-avatar-fallback')).not.toBeInTheDocument();
+      expect(avatarRequests).toEqual([]);
+    },
+  );
+
+  it('显式开启与旧定义兼容，切换 Agent 跟随各自的显示设置', async () => {
+    server.use(
+      http.get('*/v1/agents', () =>
+        HttpResponse.json([
+          { ...agents[0], show_avatar: true },
+          { ...agents[1], show_avatar: false },
+        ]),
+      ),
+    );
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderPage();
+    await screen.findByText(/你好，我是 LubanAgent/);
+    expect(await screen.findByTestId('agent-avatar-img')).toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: 'Agent 虚拟形象' })).toBeInTheDocument();
+    await user.click(screen.getByRole('combobox', { name: '选择 Agent' }));
+    await user.click(await screen.findByRole('option', { name: /code-helper/ }));
+    expect(screen.queryByRole('complementary', { name: 'Agent 虚拟形象' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('combobox', { name: '选择 Agent' }));
+    await user.click(await screen.findByRole('option', { name: /cs-agent/ }));
+    expect(await screen.findByTestId('agent-avatar-img')).toBeInTheDocument();
+  });
+
+  it('同一 Agent 的显示设置刷新不会重置会话或对话历史', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let showAvatar = false;
+    server.use(
+      http.get('*/v1/agents', () => HttpResponse.json([{ ...agents[0], show_avatar: showAvatar }])),
+    );
+    const { bodies } = captureRunBodies();
+    const user = userEvent.setup();
+    renderPage(queryClient);
+    await screen.findByText(/你好，我是 LubanAgent/);
+    await user.type(screen.getByLabelText('聊天输入'), '第一轮');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByRole('button', { name: '发送' });
+
+    showAvatar = true;
+    await act(async () => queryClient.refetchQueries({ queryKey: ['agents'], exact: true }));
+    expect(await screen.findByTestId('agent-avatar-img')).toBeInTheDocument();
+    expect(screen.getByText('第一轮')).toBeInTheDocument();
+    showAvatar = false;
+    await act(async () => queryClient.refetchQueries({ queryKey: ['agents'], exact: true }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('complementary', { name: 'Agent 虚拟形象' }),
+      ).not.toBeInTheDocument(),
+    );
+
+    await user.type(screen.getByLabelText('聊天输入'), '第二轮');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByRole('button', { name: '发送' });
+    await waitFor(() => expect(bodies).toHaveLength(2), { timeout: 3000 });
+    expect(bodies[1].body.session_id).toBe(bodies[0].body.session_id);
+    expect(bodies[1].body.history?.[0]).toEqual({ role: 'user', content: '第一轮' });
+    expect(bodies[1].body.history?.[1]?.role).toBe('assistant');
+    expect(bodies[0].body).not.toHaveProperty('show_avatar');
+    expect(bodies[1].body).not.toHaveProperty('show_avatar');
   });
 });

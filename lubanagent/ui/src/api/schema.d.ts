@@ -220,11 +220,64 @@ export interface paths {
         };
         /**
          * List Brain Mappings
-         * @description 四槽位当前映射（工作台模型中心回显用）；env 缺省取 settings.env。
+         * @description 当前环境的真实映射；槽位来自数据库目录，不再枚举四个预设。
          */
         get: operations["list_brain_mappings_v1_brain_mappings_get"];
         /** Set Brain Mapping */
         put: operations["set_brain_mapping_v1_brain_mappings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/brain-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Brain Profiles */
+        get: operations["list_brain_profiles_v1_brain_profiles_get"];
+        put?: never;
+        /** Create Brain Profile */
+        post: operations["create_brain_profile_v1_brain_profiles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/brain-profiles/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Brain Profile */
+        delete: operations["delete_brain_profile_v1_brain_profiles__key__delete"];
+        options?: never;
+        head?: never;
+        /** Update Brain Profile */
+        patch: operations["update_brain_profile_v1_brain_profiles__key__patch"];
+        trace?: never;
+    };
+    "/v1/brain-profiles/{key}/references": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Brain Profile References */
+        get: operations["brain_profile_references_v1_brain_profiles__key__references_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -850,6 +903,11 @@ export interface components {
              * @default
              */
             role: string;
+            /**
+             * Show Avatar
+             * @default true
+             */
+            show_avatar: boolean;
             /** Skills */
             skills?: string[];
             /** @default draft */
@@ -1074,12 +1132,76 @@ export interface components {
             model_key: string;
             profile: components["schemas"]["BrainProfile"];
         };
-        /**
-         * BrainProfile
-         * @description 大脑槽位, 切换模型 = 改库映射, 不改代码。
-         * @enum {string}
-         */
-        BrainProfile: "fast" | "smart" | "cheap" | "vision";
+        BrainProfile: string;
+        /** BrainProfileCreate */
+        BrainProfileCreate: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Env */
+            env?: string | null;
+            key: components["schemas"]["BrainProfile"];
+            /** Model Key */
+            model_key?: string | null;
+            /** Name */
+            name: string;
+        };
+        /** BrainProfileOut */
+        BrainProfileOut: {
+            /** Agent Count */
+            agent_count: number;
+            /** Aliases */
+            aliases: components["schemas"]["BrainProfile"][];
+            /** Description */
+            description: string;
+            key: components["schemas"]["BrainProfile"];
+            /** Name */
+            name: string;
+            /** Reference Count */
+            reference_count: number;
+        };
+        /** BrainProfilePatch */
+        BrainProfilePatch: {
+            /** Description */
+            description?: string | null;
+            /** Env */
+            env?: string | null;
+            key?: components["schemas"]["BrainProfile"] | null;
+            /** Model Key */
+            model_key?: string | null;
+            /** Name */
+            name?: string | null;
+        };
+        /** BrainProfileReference */
+        BrainProfileReference: {
+            /** Agent Key */
+            agent_key: string;
+            /** Agent Name */
+            agent_name: string;
+            /** Current */
+            current: boolean;
+            /** Field */
+            field: string;
+            /** Version */
+            version: number;
+        };
+        /** BrainProfileReferencesOut */
+        BrainProfileReferencesOut: {
+            /** Agent Count */
+            agent_count: number;
+            key: components["schemas"]["BrainProfile"];
+            /** References */
+            references: components["schemas"]["BrainProfileReference"][];
+        };
+        /** BrainProfilesOut */
+        BrainProfilesOut: {
+            /** Env */
+            env: string;
+            /** Items */
+            items: components["schemas"]["BrainProfileOut"][];
+        };
         /**
          * Budget
          * @description 运行预算上限, 任一为 None 表示该项不限。
@@ -2551,6 +2673,158 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BrainMappingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_brain_profiles_v1_brain_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrainProfilesOut"];
+                };
+            };
+        };
+    };
+    create_brain_profile_v1_brain_profiles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrainProfileCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrainProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_brain_profile_v1_brain_profiles__key__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: components["schemas"]["BrainProfile"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_brain_profile_v1_brain_profiles__key__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: components["schemas"]["BrainProfile"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrainProfilePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrainProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    brain_profile_references_v1_brain_profiles__key__references_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: components["schemas"]["BrainProfile"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrainProfileReferencesOut"];
                 };
             };
             /** @description Validation Error */

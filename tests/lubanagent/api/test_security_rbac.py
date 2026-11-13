@@ -36,9 +36,7 @@ async def make_security_client(db: Database, registry: Registry, **overrides) ->
         auth_enabled=True, api_key=MASTER, observability_backend="none", **overrides
     )
     application = create_app(settings=settings, registry=registry, db=db)
-    return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=application), base_url="http://test"
-    )
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=application), base_url="http://test")
 
 
 async def create_account(
@@ -99,9 +97,7 @@ async def test_custom_provider_empty_scopes_is_read_only(db, registry):
             return Principal(subject="external-user")
 
     registry.register_auth(ReadOnlyProvider())
-    settings = make_settings(
-        auth_enabled=True, api_key=None, observability_backend="none"
-    )
+    settings = make_settings(auth_enabled=True, api_key=None, observability_backend="none")
     application = create_app(settings=settings, registry=registry, db=db)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=application), base_url="http://test"
@@ -119,6 +115,60 @@ async def test_custom_provider_empty_scopes_is_read_only(db, registry):
         assert me.status_code == 200
         assert me.json()["permissions"] == ["config:read"]
         assert me.json()["subject"] == "external-user"
+
+
+async def test_brain_slot_catalog_permissions_and_live_revocation(db, registry):
+    async with await make_security_client(db, registry) as client:
+        await create_account(client, "slot-viewer", role_keys=["viewer"])
+        await create_account(client, "slot-operator", role_keys=["operator"])
+        viewer = bearer(await login(client, "slot-viewer"))
+        operator = bearer(await login(client, "slot-operator"))
+        for path in [
+            "/v1/brain-profiles",
+            "/v1/brain-profiles/smart/references",
+            "/v1/brain-mappings",
+        ]:
+            assert (await client.get(path)).status_code == 401
+            assert (await client.get(path, headers=viewer)).status_code == 200
+        writes = [
+            ("POST", "/v1/brain-profiles", {"key": "blocked", "name": "Blocked"}),
+            ("PATCH", "/v1/brain-profiles/smart", {"name": "Blocked"}),
+            ("DELETE", "/v1/brain-profiles/vision", None),
+            ("PUT", "/v1/brain-mappings", {"profile": "smart", "model_key": "fake-chat"}),
+        ]
+        for method, path, body in writes:
+            denied = await client.request(method, path, headers=viewer, json=body)
+            assert denied.status_code == 403, denied.text
+            assert denied.json()["error"]["details"]["required_permission"] == "config:write"
+        created = await client.post(
+            "/v1/brain-profiles",
+            headers=operator,
+            json={"key": "allowed", "name": "Allowed", "model_key": "fake-chat"},
+        )
+        assert created.status_code == 201
+        assert (
+            await client.patch(
+                "/v1/brain-profiles/allowed", headers=operator, json={"name": "Edited"}
+            )
+        ).status_code == 200
+        assert (
+            await client.delete("/v1/brain-profiles/allowed", headers=operator)
+        ).status_code == 200
+        assert (
+            await client.patch(
+                "/v1/security/roles/operator",
+                headers=bearer(MASTER),
+                json={"name": "Read only", "permissions": ["config:read"]},
+            )
+        ).status_code == 200
+        assert (
+            await client.post(
+                "/v1/brain-profiles",
+                headers=operator,
+                json={"key": "revoked", "name": "Revoked"},
+            )
+        ).status_code == 403
+        assert (await client.get("/v1/brain-profiles", headers=operator)).status_code == 200
 
 
 async def test_database_token_works_while_master_key_configured(db, registry):
@@ -190,7 +240,7 @@ async def test_password_reset_revokes_existing_sessions(db, registry):
         )
         assert response.status_code == 200
         assert (await client.get("/v1/auth/me", headers=bearer(token))).status_code == 401
-        assert (await login(client, "root-admin", new_password))
+        assert await login(client, "root-admin", new_password)
 
 
 async def test_logout_revokes_token_immediately(db, registry):
@@ -345,9 +395,7 @@ async def test_concurrent_demotion_and_disable_keep_one_admin(db):
     async def disable(repo: SecurityRepository) -> None:
         await repo.update_user(second["id"], enabled=False)
 
-    outcomes = await asyncio.gather(
-        run(demote), run(disable), return_exceptions=True
-    )
+    outcomes = await asyncio.gather(run(demote), run(disable), return_exceptions=True)
     successes = [result for result in outcomes if not isinstance(result, BaseException)]
     assert len(successes) >= 1
     async with db.session() as session:
@@ -437,9 +485,7 @@ async def test_update_user_rejects_mixed_invalid_role_keys(db):
             await repo.update_user(user["id"], role_keys=["admin", "missing-role"])
         assert missing_role.value.code == ErrorCode.VALIDATION_ERROR
         with pytest.raises(LubanError) as too_many:
-            await repo.update_user(
-                user["id"], role_keys=[f"role-{index}" for index in range(21)]
-            )
+            await repo.update_user(user["id"], role_keys=[f"role-{index}" for index in range(21)])
         assert too_many.value.code == ErrorCode.VALIDATION_ERROR
         assert await repo.get_user(user["id"]) is not None
         refreshed = await repo.get_user(user["id"])
@@ -595,9 +641,7 @@ async def test_authenticated_approval_ignores_forged_decided_by(db, registry):
     )
     manager = application.state.ctx.approval_manager
     descriptor = ToolDescriptor(key="refund", name="refund", description="r", args_schema={})
-    pending = await manager.create_request(
-        "run-approval", descriptor, {}
-    )
+    pending = await manager.create_request("run-approval", descriptor, {})
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=application), base_url="http://test"
     ) as client:

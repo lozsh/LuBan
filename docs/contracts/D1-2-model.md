@@ -1,6 +1,6 @@
 # 契约 D1-2：`lubanagent/model` 模型工厂与大脑解析（含 FakeLLM）
 
-> 来源：开发计划 D1-2、技术方案 §7 全节、架构设计 §2/§3.3、AGENTS.md §4（逻辑大脑四槽位、OpenAI 兼容优先）。
+> 来源：开发计划 D1-2、技术方案 §7 全节、架构设计 §2/§3.3、AGENTS.md §4（可扩展逻辑大脑目录，四个初始预设；OpenAI 兼容优先）。
 > 前置：D0-1（core：ModelDefinition/ModelCapability/BrainProfile/AgentDefinition/TraceEvent/errors）已完成。
 
 ## 范围

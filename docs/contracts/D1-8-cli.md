@@ -16,7 +16,7 @@
 | `name` | `key` + `name` | key 即 name（slug） |
 | `description` | `description` | 可选 |
 | `instruction` | `instructions` | |
-| `brain` | `brain.profile` | fast/smart/cheap/vision |
+| `brain` | `brain.profile` | 匹配 `^[a-z][a-z0-9_-]{0,63}$`，fast/smart/cheap/vision 是初始预设；自定义槽位先登记，保存时解析旧 alias 为当前 key |
 | `fallbacks` | `brain.fallback_profiles` | 可选 list |
 | `tools` | `tools` | |
 | `mcp_servers` | `mcp_servers`（新增字段，见决策 3） | |
@@ -55,7 +55,7 @@ def init(
     agents_dir: Path = typer.Option(Path("app/agents"), help="Agent YAML 目录"),
     database_url: str | None = typer.Option(None, envvar="DATABASE_URL"),
 ) -> None:
-    """种子落库（seed_defaults：fake 模型 + 四槽位映射，幂等）→ 扫描 agents_dir/*.yaml 逐个导入：
+    """种子落库（seed_defaults：fake 模型 + 四个初始预设的空映射；不覆盖/复活已改名或删除目录）→ 扫描 agents_dir/*.yaml 逐个导入：
     已存在的 key → 追加新版本（create_version）；不存在 → create_agent。打印每个 Agent 的 key@version。"""
 
 @app.command()
@@ -87,7 +87,7 @@ def eval_cmd(...) -> None:   # 骨架，见契约决策 2
 
 1. `pytest tests/lubanagent/cli/` 全绿（typer.testing.CliRunner + tmp SQLite + tmp YAML 目录）：
    - `migrate`：空库 → upgrade head 成功；
-   - `init`：写入示例 YAML（含 tools/limits/memory/io_contract 全键）→ 跑 init → 输出 `key@1`；改 YAML 加描述再 init → `key@2`；库中定义字段与 YAML 映射一致；`seed_defaults` 生效（models/brain_mappings 有 fake-chat 与四槽位）；
+   - `init`：写入示例 YAML（含 tools/limits/memory/io_contract 全键）→ 跑 init → 输出 `key@1`；改 YAML 加描述再 init → `key@2`；库中定义字段与 YAML 映射一致；空库 `seed_defaults` 有 fake-chat 与四个初始预设，已有目录/映射不覆盖、墓碑及改名不复活；
    - `export`：导出到文件 → `definition_from_yaml` 与库中定义字段级一致（往返无损）；导出不存在 key → exit 1 友好报错；
    - `luban eval`：exit code 2 且输出含 "D2-1"；
    - 未知 YAML 键/缺 name → VALIDATION_ERROR 语义报错。

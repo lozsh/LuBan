@@ -19,13 +19,15 @@ SQLAlchemy 2.0 Declarative（`Mapped[]` + `mapped_column`），全部表含 `cre
 | --- | --- | --- |
 | `agents` | `id` int pk、`key` str(128)、`name` str(256)、`description` text、`current_version` int default 1、`status` str(32)（AgentStatus 值）、`updated_at` DateTime onupdate now | `key` unique |
 | `agent_versions` | `id` int pk、`agent_id` int FK→agents.id、`version` int、`definition` JSON（AgentDefinition dump）、`status` str(32)、`published_at` DateTime nullable | unique(`agent_id`,`version`) |
-| `runs` | `id` str(36) pk（uuid）、`agent_id` int FK、`agent_version_id` int FK→agent_versions.id、`session_id` str(128) nullable、`parent_run_id` str(36) nullable、`status` str(32)（RunStatus 值）、`input` JSON、`output` text nullable、`brain_profile` str(16)、`model_key` str(128) nullable、`end_reason` str(32) nullable、`token_usage` JSON、`cost` float default 0、`error` JSON nullable、`started_at`/`ended_at` DateTime nullable | index(`agent_id`)、index(`session_id`) |
+| `runs` | `id` str(36) pk（uuid）、`agent_id` int FK、`agent_version_id` int FK→agent_versions.id、`session_id` str(128) nullable、`parent_run_id` str(36) nullable、`status` str(32)（RunStatus 值）、`input` JSON、`output` text nullable、`brain_profile` str(64)（槽位改名不回写）、`model_key` str(128) nullable、`end_reason` str(32) nullable、`token_usage` JSON、`cost` float default 0、`error` JSON nullable、`started_at`/`ended_at` DateTime nullable | index(`agent_id`)、index(`session_id`) |
 | `traces` | `id` str(36) pk、`run_id` str(36) FK→runs.id、`status` str(32)、`started_at`/`ended_at` DateTime nullable | `run_id` unique |
 | `trace_events` | `id` str(36) pk、`trace_id` str(36) FK→traces.id、`run_id` str(36)、`step_index` int nullable、`type` str(64)（TraceEventType 值）、`payload` JSON | index(`run_id`) |
 | `token_usages` | `id` int pk、`run_id` str(36) FK、`step_index` int nullable、`model_key` str(128)、`input_tokens` int、`output_tokens` int | index(`run_id`) |
 | `cost_records` | `id` int pk、`run_id` str(36) FK、`model_key` str(128)、`cost` float、`currency` str(8) default "CNY" | index(`run_id`) |
 | `models` | `id` int pk、`key` str(128)、`provider` str(64)、`model_name` str(256)、`factory` str(64)、`capability` JSON、`params` JSON、`base_url` str(512) nullable、`api_key_env` str(128) nullable、`enabled` bool default True、`updated_at` onupdate now | `key` unique |
-| `brain_mappings` | `id` int pk、`env` str(32)、`profile` str(16)（BrainProfile 值）、`model_key` str(128) FK→models.key、`updated_at` onupdate now | unique(`env`,`profile`) |
+| `brain_mappings` | `id` int pk、`env` str(32)、`profile` str(64)（当前目录 key）、`model_key` str(128) FK→models.key、`updated_at` onupdate now | unique(`env`,`profile`) |
+| `brain_profiles` | `id` int pk（稳定身份）、`key` str(64)、`name` str(128)、`description` str(512) default ""、`deleted` bool default False、`revision` int default 0、`updated_at` onupdate now | key unique；墓碑不被播种复活 |
+| `brain_profile_aliases` | `key` str(64) pk、`profile_id` int FK→brain_profiles.id（该表无 created_at） | 当前 key 与历史 alias 统一预留 |
 | `skills` | `id` int pk、`key` str(128)、`name` str(256)、`version` str(32)、`manifest` JSON、`enabled` bool default True | `key` unique |
 | `mcp_servers` | `id` int pk、`key` str(128)、`name` str(256)、`transport` str(16)（`"stdio"`/`"http"`）、`config` JSON、`enabled` bool default True | `key` unique |
 | `eval_datasets` | `id` int pk、`key` str(128)、`name` str(256)、`version` str(32)、`cases` JSON | `key` unique |
@@ -58,11 +60,13 @@ def create_database(settings: Settings) -> Database          # 从 settings.data
 - `RunRepository`：`create_run(run: Run) -> None`、`get_run(run_id: str) -> Run | None`、`update_run(run: Run) -> None`（按 id 覆盖状态/输出/结束原因/用量/费用/error/时间戳）、`list_runs(agent_key: str | None = None, *, session_id: str | None = None, limit: int = 50) -> list[Run]`、`add_token_usage(run_id, step_index, model_key, input_tokens, output_tokens) -> None`、`add_cost_record(run_id, model_key, cost, currency="CNY") -> None`
 - `TraceRepository`：`create_trace(trace: Trace) -> None`、`get_trace_by_run(run_id: str) -> Trace | None`、`add_event(event: TraceEvent) -> None`、`list_events(run_id: str) -> list[TraceEvent]`（按 created_at、id 升序）、`finish_trace(run_id: str, status: RunStatus, ended_at: datetime) -> None`
 - `ModelRepository`：`upsert_model(definition: ModelDefinition) -> None`、`get_model(key: str) -> ModelDefinition | None`、`list_models(*, enabled_only: bool = True) -> list[ModelDefinition]`、`set_brain_mapping(env: str, profile: BrainProfile, model_key: str) -> None`（不存在则插、存在则改）、`get_brain_mapping(env: str, profile: BrainProfile) -> ModelDefinition | None`（join models 取完整定义；映射指向的 model 不存在 → None）
+- 槽位目录增量：`list_brain_profiles` / `create_brain_profile` / `update_brain_profile` / `brain_profile_references` / `delete_brain_profile` / `normalize_agent_brain` / `list_brain_mappings`，完整签名与字段见 `docs/specs/modules/persistence.md`。改名保留 alias、原子移动全部环境映射，不改写 Agent/Run；Agent 保存按稳定目录 id 排序/别名去重，与目录/映射写入共享 guarded UPDATE 锁。删除持锁当前读全部可运行历史版本主/降级/摘要隐含 cheap 依赖，有引用抛 `BRAIN_PROFILE_IN_USE` 并保留映射；SQLite 在 SAVEPOINT 前开启真实写事务。映射读取以一次 JOIN 解析 alias→目录→mapping→model，避免并发改名两次查询空窗。
 - `SkillRepository`：`upsert(skill: SkillRow 字典) -> None`、`get(key) -> dict | None`、`list() -> list[dict]`（Skill 领域模型属 D3-3，先用 dict 承载，仓储签名标注 TODO(D3-3)）
 - `McpServerRepository`：`upsert/get/list`（dict 承载，TODO(D1-6)）
 - `EvalRepository`：`create_dataset(key, name, version, cases) -> None`、`get_dataset(key) -> dict | None`、`save_result(dataset_key, agent_key, agent_version, model_key, score, details) -> None`、`list_results(dataset_key) -> list[dict]`（TODO(D2-1)）
 
 ### migrations/
+- 当前增量 `0012_editable_brain_profiles`：新建目录及统一标识空间、将 mapping/Run 槽位字段扩至 64、登记合法历史标识而不改快照；有 custom/编辑名称用途/改名 alias/墓碑/非预设历史数据时拒绝降级，不静默丢配置。完整迁移边界见 `docs/specs/modules/persistence.md` 和 `docs/UPGRADE.md`。
 - 根 `alembic.ini`：`script_location = migrations`，URL 不写死——`migrations/env.py` 从 `Settings().sync_database_url` 读（允许 `DATABASE_URL` env 覆盖），`target_metadata = Base.metadata`。
 - `versions/0001_initial_schema.py`：**用 `alembic revision --autogenerate` 从 models 生成后人工核对**，包含全部 14 张表。
 - 种子里程碑不做（种子数据属 CLI `luban init`，D1-8）。

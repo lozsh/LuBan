@@ -63,14 +63,21 @@ curl "http://localhost:8000/v1/runs?session_id=s-1&limit=10"
 curl -N -X POST http://localhost:8000/v1/runs/<run_id>/resume
 ```
 
-## 模型中心（models / brain-mappings）
+## 模型中心（models / brain-profiles / brain-mappings）
 
 | 方法 | 路径 | 说明 | 关键请求字段 | 关键响应字段 |
 |---|---|---|---|---|
 | GET | `/v1/models` | 已注册模型列表（脱敏输出） | — | `ModelDefinitionOut[]`（key/provider/model_name/factory/capability/params/api_key_env/enabled；不含 base_url 等连接信息） |
 | PUT | `/v1/models` | 注册/更新模型（upsert） | `key`/`provider`/`model_name`/`factory`/`api_key_env`；可选 `base_url`/`capability`/`params`（含单价字段） | 脱敏后的 `ModelDefinitionOut` |
-| GET | `/v1/brain-mappings` | 四槽位当前映射（fast/smart/cheap/vision） | query：`env`（缺省取服务配置） | `BrainMappingOut[]`（env/profile/model_key） |
-| PUT | `/v1/brain-mappings` | 绑定槽位到模型 | `profile`/`model_key`；可选 `env` | `BrainMappingOut`；模型不存在 → 404 `MODEL_NOT_FOUND` |
+| GET | `/v1/brain-mappings` | 活动槽位的实际环境映射，不枚举四项 | query：`env`（缺省取服务配置） | `BrainMappingOut[]`（env/profile/model_key），未映射不返回 |
+| PUT | `/v1/brain-mappings` | 绑定动态槽位到模型，旧 alias 解析为当前 key | `profile`/`model_key`；可选 `env` | `BrainMappingOut`；模型不存在 → 404 `MODEL_NOT_FOUND`；槽位未知/已删除 → 404 `BRAIN_PROFILE_NOT_FOUND` |
+| GET | `/v1/brain-profiles` | 活动槽位目录及服务端当前环境 | — | `{env,items}`；槽位 `key/name/description/aliases/reference_count/agent_count` |
+| POST | `/v1/brain-profiles` | 新增槽位，可同时绑定模型 | `key`/`name`；可选 `description/model_key/env` | 201 槽位；标识或历史 alias 占用 → 409 `BRAIN_PROFILE_CONFLICT` |
+| PATCH | `/v1/brain-profiles/{key}` | 编辑标识/名称/用途及可选映射，改名保留 alias 并移动所有环境映射 | 可选 `key/name/description/model_key/env` | 槽位；不存在 → 404；冲突 → 409 `BRAIN_PROFILE_CONFLICT` |
+| GET | `/v1/brain-profiles/{key}/references` | 全部 Agent 历史版本的使用列表 | — | `{key,agent_count,references}`；Agent key/name、version、current、field |
+| DELETE | `/v1/brain-profiles/{key}` | 无 Agent 引用才删除，移除所有环境映射 | — | `{removed:true}`；使用中 → 409 `BRAIN_PROFILE_IN_USE`，details 为 profile/references/agent_count，映射不变 |
+
+目录标识匹配 `^[a-z][a-z0-9_-]{0,63}$`，名称长 1–128，用途说明 ≤512；非法请求返回 422。读目录/引用/映射需 `config:read`，写需 `config:write`。删除保护涵盖主槽位、降级槽位和摘要记忆隐含 cheap，不只当前版本；四个初始预设也遵守此规则。新增/编辑及可选映射在同一事务内，失败整体回滚。
 
 ```bash
 # 注册 OpenAI 兼容模型

@@ -14,7 +14,7 @@ flowchart TB
     DB --> A
     DB --> B
     DB --> T
-    A --> BOX["共用工具箱<br/>大脑（多家模型 · 四槽位）· 业务工具 · MCP · Skill · 知识资料"]
+    A --> BOX["共用工具箱<br/>大脑（多家模型 · 可编辑槽位）· 业务工具 · MCP · Skill · 知识资料"]
     B --> BOX
     T --> BOX
     A --> LOG["黑匣子<br/>干了什么、花了多少<br/>全程 Trace、随时回放"]

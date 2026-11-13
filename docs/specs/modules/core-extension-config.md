@@ -40,13 +40,13 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 | Model | `IOContract`（`definition.py:19`） | Agent 输入输出契约：`input_type`/`output_schema`/`streaming` | — |
 | Model | `BrainConfig`（`definition.py:27`） | 大脑槽位配置：`profile`/`fallback_profiles`/`allow_run_override` | — |
 | Model | `KnowledgeConfig`（`definition.py:35`） | 知识检索配置：`sources`/`top_k`/`cite` + 防错答守门三字段 `score_threshold`（默认 `0.0`，不过滤）/`no_hit_fallback`（默认 `None`，不短路拒答）/`max_age_days`（默认 `None`，不过滤）（`definition.py:39-42`） | — |
-| Model | `MemoryConfig`（`definition.py:45`） | 记忆配置：`session`/`window_size`/`summary`/`long_term` | — |
-| Model | `BoundaryConfig`（`definition.py:52`） | 运行边界：`max_steps`/`timeout_seconds`/`budget`/`allow_human_handoff` | — |
-| Model | `AgentDefinition`（`definition.py:61`） | Agent 定义本体（库内记录），含 Prompt 库双轨引用字段 `prompt_key`/`prompt_version`（`definition.py:73-74`），`tool_signatures` 用于版本冻结校验 | — |
-| Model(frozen) | `AgentVersion`（`definition.py:88`） | 发布即冻结的不可变版本快照，`model_config = ConfigDict(frozen=True)` | 冻结后再赋值抛 pydantic 异常 |
+| Model | `MemoryConfig`（`definition.py:48`） | 记忆配置：`session`/`window_size`/`summary`/`long_term` | — |
+| Model | `BoundaryConfig`（`definition.py:58`） | 运行边界：`max_steps`/`timeout_seconds`/`budget`/`allow_human_handoff` | — |
+| Model | `AgentDefinition`（`definition.py:67`） | Agent 定义本体（库内记录），含 Prompt 库双轨引用字段 `prompt_key`/`prompt_version`（`definition.py:84-85`），`tool_signatures` 用于版本冻结校验 | — |
+| Model(frozen) | `AgentVersion`（`definition.py:99`） | 发布即冻结的不可变版本快照，`model_config = ConfigDict(frozen=True)` | 冻结后再赋值抛 pydantic 异常 |
 | Model | `PromptDefinition`（`prompt.py:8`） | Prompt 库定义本体（当前版视图）：`key`/`name`/`description`/`content`/`variables`/`version`，`content` 即 Agent `instructions` 的来源文本 | — |
 | Model(frozen) | `PromptVersion`（`prompt.py:19`） | Prompt 发布即冻结的不可变版本快照（与 `AgentVersion` 同型）：`prompt_key`/`version`/`content`/`variables`/`created_at` | 冻结后再赋值抛 pydantic 异常 |
-| Enum(str) | `BrainProfile`（`brain.py:6`） | 逻辑大脑槽位：`fast`/`smart`/`cheap`/`vision`，切换模型=改库映射不改代码 | — |
+| 可扩展 str（兼容 Enum） | `BrainProfile`（`brain.py`） | 标识匹配 `^[a-z][a-z0-9_-]{0,63}$`；保留 `FAST="fast"`/`SMART="smart"`/`CHEAP="cheap"`/`VISION="vision"` 和 `.value`，枚举迭代只列初始预设；实际目录来自数据库，OpenAPI 为受约束 string 而非封闭 enum | 非法标识 → pydantic `ValidationError` |
 | Model | `ModelCapability`（`model.py:8`） | 模型能力清单：`chat`/`streaming`/`tool_calling`/`structured_output`/`vision`/`reasoning`/`context_window`/`max_output` | — |
 | Model | `ModelDefinition`（`model.py:21`） | 模型注册记录：`key`/`provider`/`model_name`/`factory`/`capability`/`params`/`base_url`/`api_key_env`/`enabled`，不存密钥本体 | — |
 | Model | `Budget`（`budget.py:6`） | 运行预算上限：`max_tokens`/`max_cost`/`max_seconds`，任一为 `None` 表示不限 | — |
@@ -65,7 +65,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 | Model | `ToolDescriptor`（`tool.py:26`） | 工具注册描述：`key`/`name`/`description`/`args_schema`/`risk`/`contract`/`signature_hash` | — |
 | Model | `SkillMeta`（`skill.py:6`） | L1 元数据：`name`/`description`/`version`，扫描常驻注入 system prompt | — |
 | Model | `SkillPackage`（`skill.py:14`） | L1+L2 定位信息：`meta`/`path`/`scripts`/`references`/`assets`/`content_hash` | — |
-| Enum(str) | `ErrorCode`（`errors.py:7`） | 统一错误码（29 种，覆盖 Agent/Prompt/Model/Tool/Run/Auth/Config/Knowledge 各域；`KNOWLEDGE_SOURCE_NOT_FOUND` → 404 为知识库管理新增） | — |
+| Enum(str) | `ErrorCode`（`errors.py:7`） | 统一错误码共 32 种；槽位目录新增 `BRAIN_PROFILE_NOT_FOUND` → 404、`BRAIN_PROFILE_CONFLICT` → 409、`BRAIN_PROFILE_IN_USE` → 409 | — |
 | Exception | `LubanError`（`errors.py:31`） | 框架统一异常：`code`/`message`/`details`/`retryable`，`to_dict()` 可整体序列化存储 | 构造时不校验，业务代码按需 raise |
 | Exception | `CapabilityMismatchError`/`BudgetExceededError`/`StepLimitExceededError`/`RunTimeoutError`/`RunCancelledError`/`ToolApprovalRequiredError`（`errors.py:62-90`） | `LubanError` 的语义化子类，各自固定对应 `ErrorCode` | 同 `LubanError` |
 | 函数 | `is_secret_key(key: str) -> bool`（`redact.py:68-74`） | 字段级秘密键判定：键名归一化（小写去符号，`normalized_key`，`redact.py:64-65`）后命中内置秘密键集合（`redact.py:17-41`，含 `apikey`/`authorization`/`token`/`password`/`secret`/`credential` 等）、部署者经 `register_secret_keys` 注册的额外键、或 `*apikey`/`*token`/`*password`/`*secret`/`*credential` 等后缀（`redact.py:43-51`）即真；与 H06 模型 `params` 校验同源 | 无 |
@@ -132,13 +132,13 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 | 常量 | `USER_EXTENSION_PACKAGES`（`defaults.py:6`） | `("app.tools", "app.graphs")`，约定优于配置的用户扩展扫描入口 | — |
 | 常量 | `FAKE_MODEL_KEY`（`defaults.py:8`） | `"fake-chat"`，零密钥兜底模型 key | — |
 | 常量 | `SEED_MODEL_DEFINITIONS`（`defaults.py:12`） | 零外部密钥环境全绿依据；形状 = `ModelDefinition.model_dump(mode="json")`，可直接 `model_validate` 消费 | — |
-| 常量 | `SEED_BRAIN_MAPPINGS`（`defaults.py:35`） | `{"fast"/"smart"/"cheap"/"vision": FAKE_MODEL_KEY}` 四槽位种子映射 | — |
+| 常量 | `SEED_BRAIN_MAPPINGS`（`defaults.py:35`） | `{"fast"/"smart"/"cheap"/"vision": FAKE_MODEL_KEY}` 四个初始预设的种子映射，不代表封闭目录 | — |
 
 ## 数据模型
 
 本模块（`core`）是 pydantic dataclass 领域模型，**无对应数据库表**；持久化落地见 `persistence` 模块的 ORM 映射（例如 `AgentDefinition`/`AgentVersion` 对应 `persistence/models/agent.py` 的 `AgentRow`/`AgentVersionRow`，`persistence/models/agent.py:14-32`）。`extension`/`config` 无数据模型（纯运行期对象/环境变量）。以下按关键 dataclass 列出字段结构（字段名/类型/约束，来源见"接口契约"表内行号，此处不重复列出全部，仅列结构较复杂或跨模块引用频繁者）：
 
-### `AgentDefinition`（`lubanagent/core/definition.py:57`）
+### `AgentDefinition`（`lubanagent/core/definition.py:67`）
 
 | 字段 | 类型 | 约束/默认 | 说明 |
 |---|---|---|---|
@@ -146,6 +146,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 | name | str | 必填 | 展示名 |
 | description/role/greeting/instructions | str | 默认 `""` | 文案类字段；`instructions` 始终是权威落地内容（引用 Prompt 库时由落库前解析写入） |
 | avatar | str \| None | 默认 `None` | 虚拟形象落盘文件名（`avatar.svg/png/glb/gltf`，存 `avatar_files_root/{key}/`）；纯展示字段，运行期逻辑零感知；经 `PUT /v1/agents/{key}/avatar` 上传时由服务端设置（上传即版本） |
+| show_avatar | bool | 默认 `True` | 聊天页是否展示形象区域；`False` 只隐藏展示并保留 `avatar` 文件名与文件。旧定义/旧 YAML/旧版本 JSON 缺字段时按 `True` 解释，不回写旧快照 |
 | prompt_variables | dict[str, str] | 默认 `{}` | Prompt 变量表；引用 Prompt 解析时与 Prompt 变量合并，Agent 自带同名变量覆盖 |
 | prompt_key | str \| None | 默认 `None` | Prompt 库引用（双轨）：非空时落库前服务端解析 prompt 内容写入 `instructions`；`None` = 纯内嵌（存量路径零行为变化） |
 | prompt_version | int \| None | 默认 `None` | 解析时钉住的 Prompt 版本（溯源）；非空按钉住版解析，`null` 取当前版 |
@@ -261,28 +262,29 @@ create_app()
 - **商业边界**：`lubanagent → lubanagent_channels` 禁止导入（`importlinter.toml:13-17`），渠道层三扩展点（`ChannelConnector`/`SessionStateStore`/`OutputGuard`）只在 `extension/protocols.py` 定义接口，不含任何实现，实现留给商用渠道层模块。
 - **Protocol 契约而非继承**：所有扩展点均为 `@runtime_checkable` 的 `Protocol`（`extension/protocols.py`），用户扩展类无需继承任何基类，只需实现对应方法签名（如 `ToolProvider` 只需实现 `tools() -> list[ToolDescriptor]`）即满足契约，可用 `isinstance(obj, ToolProvider)` 运行期校验。
 - **Registry 重复注册即报错**：`register_tool`/`register_graph`/`register_observability_backend`/`register_knowledge` 对同一 key/name 重复注册均抛 `LubanError(ErrorCode.CONFIG_ERROR)`（`registry.py:39/57/86/105`），防止用户扩展包之间静默覆盖。`register_auth`/`register_observability`/`register_hook` 无重复校验：前两者是单例覆盖式注册（后注册覆盖前者），`register_hook` 是追加式（允许多个 Hook 共存）。
-- **`AgentVersion` 发布即冻结**：`model_config = ConfigDict(frozen=True)`（`definition.py:87`），版本快照创建后字段不可变，防止已发布版本被运行期篡改（对应"Agent 定义层"契约：库内版本化、发布即冻结）。`PromptVersion` 同型同规（`prompt.py:22`）。
+- **`AgentVersion` 发布即冻结**：`model_config = ConfigDict(frozen=True)`（`definition.py:102`），版本快照创建后字段不可变，防止已发布版本被运行期篡改（对应"Agent 定义层"契约：库内版本化、发布即冻结）。`PromptVersion` 同型同规（`prompt.py:22`）。
 - **`discover()` 幂等，容错在调用方**：`discover()` 自身（`decorators.py:111-127`）已导入模块通过 `sys.modules` 判断跳过（`decorators.py:124-126`，该行是 `pkgutil.walk_packages` 子模块导入循环，非容错分支），重复调用不会重复注册；`discover()` 本身**不含** try/except，不捕获任何异常。容错处理在唯一调用方 `lubanagent/app/factory.py:44-50`：用 `try/except ModuleNotFoundError` 包裹每个包的 `discover()` 调用，扩展包本身不存在（`exc.name == package`）只记 warning 并继续，保证"空脚手架也能起"；但包内部导入失败（`exc.name != package`）会原样 `raise`，不会被吞掉。
 - **配置优先级铁律**：真实环境变量 > `.env.{env}` > `.env`（`settings.py:63-68` docstring 明确声明），`get_settings()` 用 `@lru_cache` 保证进程内单例，测试如需重新加载需显式清缓存：直接调用标准库 `lru_cache` 自带的 `get_settings.cache_clear()`（本模块未额外封装便捷方法，调用证据见 `tests/lubanagent/config/test_settings.py:111,115`，测试用例在断言前后各调一次以隔离缓存状态）。
 - **不存密钥本体**：`ModelDefinition.api_key_env` 只存环境变量名，不存密钥值本身（`model.py:22` docstring "模型定义: 模型注册键、能力清单与固定使用参数, 不存密钥本体"）。
+- **标识合法不等于槽位已登记**：`BrainProfile` 只校验字符串格式；Agent 新版本保存及映射写入由 `ModelRepository` 校验活动目录、解析旧别名并使用当前标识，未登记或已删除槽位报 `BRAIN_PROFILE_NOT_FOUND`。删除保护、别名和持锁约束见 `persistence` 模块，不在 core 引入数据库依赖。
 - **脱敏是字段级键名规则 + 凭证形态字符串识别，不做任意业务文本 PII 值级检测**：`redact_value` 只命中秘密键命名字段、含 userinfo/密钥 query 的 URL、含 `bearer ` 的字符串三类形态（`redact.py:88-103` 模块 docstring 明示策略边界）；异常 traceback 仅进日志，是否落盘由部署方日志策略管控，本组件不处理；`redact_value` 只读源数据返回新结构，执行路径必须用真实参数，绝不用副本执行（测试：`tests/lubanagent/core/test_redact.py`）。日志入库额外识别 bearer/sk-/password/token 等凭证文本，message/exception 截断到 32 KiB（UTF-8 字节，`observability/logging.py`），extras 序列化超过 16 KiB 时替换为 truncated 标记与 4 KiB 预览，但这仍不是任意 PII 识别保证。
 
 ## 名词
 
 | 术语 | 语义 |
 |---|---|
-| BrainProfile | 逻辑大脑槽位，取值 `fast`/`smart`/`cheap`/`vision` 四档，用于解耦 Agent 定义与具体模型；切换模型只需改库内 `brain_profile → model_key` 映射，不改代码不发版（`core/brain.py`） |
-| Prompt 库 / 双轨引用 | Prompt 是独立版本化的一等实体（`PromptDefinition`/`PromptVersion`）；Agent 定义经 `prompt_key`/`prompt_version` 双轨引用——非空时落库前解析 prompt 内容写入 `instructions` 并落进 Agent 版本快照，为空走纯内嵌存量路径；解析入口 `resolve_prompt_reference` 在 persistence 模块（`core/prompt.py`、`core/definition.py:69-70`） |
+| BrainProfile | 可扩展的逻辑大脑标识；`fast`/`smart`/`cheap`/`vision` 是初始预设，当前目录及旧别名存数据库，用于解耦 Agent 定义与具体模型（`core/brain.py`） |
+| Prompt 库 / 双轨引用 | Prompt 是独立版本化的一等实体（`PromptDefinition`/`PromptVersion`）；Agent 定义经 `prompt_key`/`prompt_version` 双轨引用——非空时落库前解析 prompt 内容写入 `instructions` 并落进 Agent 版本快照，为空走纯内嵌存量路径；解析入口 `resolve_prompt_reference` 在 persistence 模块（`core/prompt.py`、`core/definition.py:84-85`） |
 | Registry | 用户扩展的运行期唯一注册表；框架不 import 用户模块，只在运行时查此表取工具/图/鉴权/观测/知识源/钩子等扩展实例（`extension/registry.py`） |
 | discover | 动态包扫描函数，导入指定包及其全部子模块以触发模块顶层的 `@tool`/`@graph`/`@hook` 装饰器执行，从而完成"装饰即注册"（`extension/decorators.py:111`） |
 | ToolDescriptor | 工具注册描述，包含 `signature_hash`（函数签名摘要），用于工具版本兼容性治理与 Agent 版本冻结校验（`core/tool.py:26`） |
 | ToolContract | 工具执行契约，`timeout_seconds`/`max_retries`/`idempotent`/`approval_required` 由代码强制执行，体现"确定性规则由代码执行，不靠 Prompt 声明"（`core/tool.py:17`） |
-| signature_hash / tool_signatures | 前者是单个工具的函数签名 sha256 摘要（`decorators.py:33` `_signature_hash`）；后者是 `AgentDefinition` 上记录的工具签名快照表，发布时比对以判定版本是否需要重新冻结（`core/definition.py:75`） |
+| signature_hash / tool_signatures | 前者是单个工具的函数签名 sha256 摘要（`decorators.py:33` `_signature_hash`）；后者是 `AgentDefinition` 上记录的工具签名快照表，发布时比对以判定版本是否需要重新冻结（`core/definition.py:94`） |
 | RunContext[DepsT] | 运行时传给工具/能力的类型化上下文，`deps` 字段由调用方注入自定义依赖对象（依赖注入点），是 LangGraph 节点/工具函数访问预算、用量、元数据的统一入口；`user_id` 字段为透传观测标签（无用户管理语义），图/多 Agent 子 Run 经 `parent_ctx.user_id` 继承（`core/run.py:67,75`） |
 | LubanError / ErrorCode | 框架统一异常与错误码体系；`LubanError.to_dict()` 结构直接写入 `Run.error`/`Trace` 存储，前后端共享同一错误码表（`core/errors.py`） |
 | Trace 七问 | `trace.py` 模块 docstring 术语，指 Trace 事件流需回答的运行可观测性核心问题；具体清单（Agent 版本/模型/Prompt/工具调用/Token/费用/结束原因）定义在 `observability-trace-cost` 模块文档，详见 `docs/specs/modules/observability-trace-cost.md` 名词章节「七问」词条 |
 | USER_EXTENSION_PACKAGES | 约定优于配置的用户扩展扫描入口默认值 `("app.tools", "app.graphs")`，框架 import 期不导入，仅运行期由 `extension.discover` 动态导入（`config/defaults.py:6`） |
-| SEED_MODEL_DEFINITIONS / SEED_BRAIN_MAPPINGS | 零外部密钥环境下的种子模型定义与四槽位种子映射，支撑"零配置克隆即可跑通"（`config/defaults.py:12/35`） |
+| SEED_MODEL_DEFINITIONS / SEED_BRAIN_MAPPINGS | 零外部密钥环境下的种子模型定义与四个初始槽位映射，支撑空库首次运行；不覆盖已有配置、不复活墓碑或已改名预设（`config/defaults.py`、`app/lifespan.py`） |
 | redact_value | 共享脱敏组件的核心函数：对 dict/list/tuple 构造脱敏展示副本（秘密键/凭证形态 URL/bearer 字符串 → `[REDACTED]`），不改源数据；Trace 落库、SSE 外发、观测后端外发、Run 错误 details 四条审计边界共用同一实现（`core/redact.py:88-103`） |
 
 ## 上下游

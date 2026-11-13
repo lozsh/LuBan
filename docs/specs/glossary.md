@@ -10,7 +10,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 | 术语 | 当前语义 |
 |---|---|
-| BrainProfile | 逻辑大脑四槽位枚举 `fast`/`smart`/`cheap`/`vision`，定义在 `lubanagent/core/brain.py`，解耦 Agent 定义与具体模型；`model` 模块用它解析出 `ModelDefinition`，`runtime`/`persistence`/`api` 均直接引用，切换模型只改库映射不改代码不发版。 |
+| BrainProfile | 可扩展逻辑大脑标识，匹配 `^[a-z][a-z0-9_-]{0,63}$`，定义在 `lubanagent/core/brain.py`；`fast`/`smart`/`cheap`/`vision` 只是四个初始预设。活动目录存 `brain_profiles`，当前及历史标识统一预留在 `brain_profile_aliases`；改名不改写历史快照，新保存使用当前标识。`model`/`runtime`/`persistence`/`api` 共用此类型，切换模型只改环境映射。 |
 | Registry / default_registry | `lubanagent/extension/registry.py` 定义的框架运行期唯一注册表，方法为单数形式（`register_tool`/`register_graph`/`register_hook`/`register_auth`/`register_knowledge`/`register_observability`）；`@tool`/`@graph`/`@hook` 装饰器在 `discover()` 扫描时自动调用。框架只查表不 import 用户模块，是 `lubanagent/* → app/*` 依赖方向禁令的核心解耦点。 |
 | ToolDescriptor / ToolContract / RiskLevel | 工具注册描述与执行契约，定义在 `lubanagent/core/tool.py`；`RiskLevel`（low/medium/high）是触发人工审批的判据。`extension` 装饰器生产、`tool` 模块的 `ToolExecutor` 消费、`mcp`/`runtime`/`persistence` 均引用。 |
 | Run / RunContext / RunStatus | 一次 Agent 执行的完整记录与状态机，定义在 `lubanagent/core/run.py`，落库为 `runs` 表；`runtime`/`graph`/`multiagent`/`observability`/`api` 几乎全部模块都以 `Run` 为核心锚点实体。 |

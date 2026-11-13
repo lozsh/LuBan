@@ -3,9 +3,37 @@
  * 数据形态对齐 schema.d.ts 的 AgentDefinition，不编造字段。
  */
 
-import type { AgentDefinition, BrainProfile } from '@/api/hooks';
+import type { AgentDefinition, BrainProfile, BrainProfileOut } from '@/api/hooks';
 
-export const BRAIN_PROFILES = ['fast', 'smart', 'cheap', 'vision'] as const;
+/** 展示旧定义时保留旧值，但用目录名称解释别名；保存由后端规范化标识。 */
+export function brainProfileOptions(
+  catalog: BrainProfileOut[],
+  stored: BrainProfile[] = [],
+): Array<{ key: BrainProfile; label: string; canonicalKey: BrainProfile }> {
+  const options = catalog.map((slot) => ({
+    key: slot.key,
+    label: slot.name === slot.key ? slot.key : `${slot.name}（${slot.key}）`,
+    canonicalKey: slot.key,
+  }));
+  for (const key of stored) {
+    if (options.some((option) => option.key === key)) continue;
+    const slot = catalog.find((item) => item.aliases.includes(key));
+    options.push({
+      key,
+      label: slot ? `${slot.name}（旧标识 ${key} → ${slot.key}）` : `${key}（当前定义）`,
+      canonicalKey: slot?.key ?? key,
+    });
+  }
+  return options;
+}
+
+export function defaultBrainProfile(catalog: BrainProfileOut[]): BrainProfile | '' {
+  return (
+    catalog.find((slot) => slot.key === 'smart' || slot.aliases.includes('smart'))?.key ??
+    catalog[0]?.key ??
+    ''
+  );
+}
 
 export const AGENT_STATUSES = ['draft', 'published', 'deprecated'] as const;
 
@@ -29,6 +57,7 @@ export function emptyAgentDefinition(
     description,
     instructions,
     greeting: '',
+    show_avatar: true,
     role: '',
     status: 'draft',
     version: 1,
@@ -42,6 +71,7 @@ export function normalizeDefinition(def: AgentDefinition): AgentDefinition {
     ...def,
     description: def.description ?? '',
     greeting: def.greeting ?? '',
+    show_avatar: def.show_avatar ?? true,
     instructions: def.instructions ?? '',
     role: def.role ?? '',
     prompt_variables: def.prompt_variables ?? {},

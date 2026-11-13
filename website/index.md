@@ -16,6 +16,16 @@ hero:
       text: 查看源码
       link: https://github.com/lubanagent-dev/LuBan
 
+origin:
+  eyebrow: 从跑通原型，到长期交付业务系统
+  title: 项目起源：框架已经很多，为什么还要自己做？
+  paragraphs:
+    - Agent 框架已经很多了，但选好框架之后，定义怎么管理、出了问题怎么看记录、服务怎么部署、业务改完怎么跟上游升级，仍然需要一套具体的工程。LubanAgent 起源于这段从原型走向生产的重复工作。
+    - 我们想到的是若依式的起点：克隆后拿到完整源码，在自己的业务目录里持续开发。LangChain 和 LangGraph 负责成熟的模型、工具与执行能力；LubanAgent 把定义管理、单 Agent 与多 Agent、工作台、监控和部署接好，不重写 Agent 引擎，也不自建观测平台。
+    - 自己做的是工程组装与长期维护这一层。让团队不必每次重新拼基础设施，同时保留改源码、独立部署和掌握数据的选择。
+  link: /manual/introduction#项目起源
+  linkText: 阅读项目起源与设计取舍 →
+
 features:
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 8-4 4 4 4m8-8 4 4-4 4m-3-11-2 22"/></svg>'
     title: 你的业务，写在你的源码里
@@ -57,13 +67,13 @@ LubanAgent 是一套可以直接拿来开发业务 Agent 的完整工程，基�
 
 如果熟悉 Java 生态，可以把它理解成：**若依把 Spring Boot 组装成业务项目的起点，LubanAgent 把 LangChain / LangGraph 组装成 Agent 项目的起点。** 这是交付方式的类比，不代表功能相同。
 
-## 为什么不只写一个 Agent 脚本
+## 我们自己做什么，复用什么
 
-模型能回答问题之后，工程工作才刚开始：定义怎样修改与回溯、模型怎样替换、工具权限怎样控制、失败现场怎样排查、服务怎样部署、业务代码怎样跟随框架升级。
+LubanAgent 直接使用 LangChain / LangGraph 的能力，不重新发明模型与工具循环；观测通过适配器接 Langfuse 或 LangSmith，不重新建设一套观测平台。
 
-LubanAgent 把这些环节放在同一个工程里。你仍然需要实现自己的业务工具、权限规则和验收标准，但不用先搭一套定义管理、模型工厂、运行记录和工作台，才能开始写业务。
+我们维护的是一份可以继续开发的工程：Agent 定义与版本、模型配置、运行记录、工作台，以及业务领地和上游升级边界。你仍然需要写自己的业务工具、权限规则和验收标准，但不必为了开始写业务，先把这些基础部分重新接一遍。
 
-[阅读项目介绍：适用场景、设计取舍，以及与 Agno、Dify、LangGraph 等项目的区别 →](/manual/introduction)
+[阅读项目介绍：项目起源、适用场景与设计取舍 →](/manual/introduction)
 
 ## 从这里开始
 

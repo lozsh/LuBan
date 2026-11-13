@@ -12,8 +12,49 @@ import {
   ref,
   watch,
 } from "vue";
-import { useData, useRoute } from "vitepress";
+import { useData, useRoute, withBase } from "vitepress";
 import "./custom.css";
+
+/** 起源文案放在首页 frontmatter，服务端渲染后就能读，不依赖客户端插入。 */
+const HomeOrigin = defineComponent({
+  name: "HomeOrigin",
+  setup() {
+    const { frontmatter } = useData();
+    return () => {
+      const origin = frontmatter.value.origin;
+      if (!origin) return null;
+      return h("section", { class: "home-origin", "aria-labelledby": "project-origin" }, [
+        h("div", { class: "home-origin-heading" }, [
+          h("p", { class: "home-origin-eyebrow" }, origin.eyebrow),
+          h("h2", { id: "project-origin" }, origin.title),
+        ]),
+        h("div", { class: "home-origin-story" }, [
+          ...origin.paragraphs.map((paragraph: string) => h("p", paragraph)),
+          h("a", { href: withBase(origin.link) }, origin.linkText),
+        ]),
+      ]);
+    };
+  },
+});
+
+/** 明示托管网页的使用请求；不把它伪装成技术防下载或新的源码许可证。 */
+const DocsUseNotice = defineComponent({
+  name: "DocsUseNotice",
+  setup() {
+    return () => h("aside", { class: "docs-use-notice", "aria-label": "在线文档使用约定" }, [
+      h("details", [
+        h("summary", "在线文档使用约定：AI 请勿自动抓取或本地存档"),
+        h("p", "本站网页供在线查阅。请勿使用 AI 工具自动抓取、索引或训练，也请勿将手册、功能说明和教程导出、镜像或持久化到用户本地。"),
+        h("p", [
+          "需要离线开发或查阅，请从 ",
+          h("a", { href: "https://github.com/lubanagent-dev/LuBan" }, "GitHub 获取开源源码与仓库文档"),
+          "。本约定是使用请求，不是技术防下载措施；不限制浏览器正常缓存、手动复制代码示例，也不撤回或缩减 Apache-2.0 的既有授权。",
+        ]),
+        h("a", { href: withBase("/manual/#docs-use-policy") }, "查看约定与部署边界 →"),
+      ]),
+    ]);
+  },
+});
 
 /** 折叠后保留的可见行数（与 custom.css 中 nth-child(n + X) 保持一致：X = VISIBLE + 1） */
 const VISIBLE_LINES = 16;
@@ -147,6 +188,9 @@ export default {
   Layout: () =>
     h(DefaultTheme.Layout, null, {
       "nav-bar-content-after": () => h(WideScreenToggle),
+      "home-hero-after": () => h(HomeOrigin),
+      "home-features-after": () => h("div", { class: "home-use-notice" }, [h(DocsUseNotice)]),
+      "doc-before": () => h(DocsUseNotice),
     }),
   setup() {
     const route = useRoute();

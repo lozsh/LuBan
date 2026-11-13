@@ -26,7 +26,7 @@
 | `/agents/:key` | Agent 定义编辑器 | 分区表单（身份/指令/大脑/工具/边界/IO）、保存=新建版本、版本列表与切换查看 | GET/POST /v1/agents、POST /v1/agents/{key}/versions、GET /v1/agents/{key}/versions/{v} |
 | `/agents/:key/debug` | 运行调试台 | 输入框 + SSE 流渲染（token 打字机、tool.started/finished 条目、run.completed 汇总：模型/用量/结束原因）、取消按钮 | POST /v1/agents/{key}/runs（SSE）、POST /v1/runs/{id}/cancel |
 | `/playground` | Prompt 调试 | 选 Agent、改 instructions/variables（不入库）、试跑对比原定义结果 | 同上（variables 字段） |
-| `/models` | 模型中心 | 模型表（脱敏）、大脑映射编辑（四槽位下拉）、保存映射 | GET /v1/models、PUT /v1/models、PUT /v1/brain-mappings |
+| `/models` | 模型中心 | 模型表（脱敏）、动态槽位目录新增/编辑标识名称用途/改名/删除、服务端环境及映射回填、删前全版本 Agent 使用列表与 409 兜底；Agent 主/降级选择使用目录，兼容旧 alias | GET/PUT /v1/models、GET/POST /v1/brain-profiles、PATCH/DELETE /v1/brain-profiles/{key}、GET /v1/brain-profiles/{key}/references、GET/PUT /v1/brain-mappings |
 | `/models/compare` | 模型对比 | 同一输入两次试跑（两个 brain/profile 或两次 run）并排：输出/耗时/token | POST runs ×2 |
 | `/tools` | Tool 中心 | 列表（风险徽章/超时/幂等）、详情（args_schema 渲染表单）、在线执行看结果 | GET /v1/tools、POST /v1/tools/{key}/test |
 | `/skills` | Skill 管理 | 列表 + manifest 查看（上传/分配标记"即将支持"占位，不假装可用） | GET /v1/skills |

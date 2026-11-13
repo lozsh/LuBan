@@ -20,12 +20,15 @@ async def seed_defaults(db: Database) -> None:
         await SecurityRepository(session).seed()
     async with db.session() as session:
         repo = ModelRepository(session)
+        await repo.seed_brain_profiles(list(defaults.SEED_BRAIN_MAPPINGS))
         for payload in defaults.SEED_MODEL_DEFINITIONS:
             # 只填不存在：用户经工作台/API 改过的同 key 定义不被种子打回（H08）
             if await repo.get_model(payload["key"]) is not None:
                 continue
             await repo.upsert_model(ModelDefinition.model_validate(payload))
         for profile, model_key in defaults.SEED_BRAIN_MAPPINGS.items():
+            if not await repo.has_brain_profile(BrainProfile(profile)):
+                continue
             if await repo.has_brain_mapping(env, BrainProfile(profile)):
                 continue
             await repo.set_brain_mapping(env, BrainProfile(profile), model_key)

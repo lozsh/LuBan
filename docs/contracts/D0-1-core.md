@@ -12,7 +12,7 @@
 全部用 **Pydantic v2 BaseModel**（枚举用 `str, Enum`），必须 `model_dump(mode="json")` 可 JSON 序列化。字段默认值用 `Field(default_factory=...)` 避免可变默认值。
 
 ### brain.py
-- `class BrainProfile(str, Enum)`：`FAST="fast"` `SMART="smart"` `CHEAP="cheap"` `VISION="vision"`（技术方案 §7.6，逐字）
+- `class BrainProfile(str, Enum)`：保留 `FAST="fast"` `SMART="smart"` `CHEAP="cheap"` `VISION="vision"` 与 `.value`；支持匹配 `^[a-z][a-z0-9_-]{0,63}$` 的自定义标识，枚举迭代只列四个初始预设，OpenAPI 为受约束 string。实际目录、别名和引用完整性由 persistence 管理（技术方案 §7.6）。
 
 ### model.py
 - `class ModelCapability(BaseModel)`：`chat: bool=True`、`streaming: bool=True`、`tool_calling: bool=False`、`structured_output: bool=False`、`vision: bool=False`、`reasoning: bool=False`、`context_window: int=8192`、`max_output: int=4096`（技术方案 §7.4 能力清单逐字）
@@ -51,7 +51,7 @@
 - `class Trace(BaseModel)`：`id: str`、`run_id: str`、`status: RunStatus`、`started_at: datetime`、`ended_at: datetime|None=None`
 
 ### errors.py
-- `class ErrorCode(str, Enum)`，逐字：`AGENT_NOT_FOUND` `AGENT_VERSION_NOT_FOUND` `AGENT_VERSION_UNRUNNABLE` `MODEL_NOT_FOUND` `BRAIN_NOT_MAPPED` `CAPABILITY_MISMATCH` `NO_FALLBACK_AVAILABLE` `TOOL_NOT_FOUND` `TOOL_PERMISSION_DENIED` `TOOL_APPROVAL_REQUIRED` `TOOL_EXECUTION_FAILED` `RUN_NOT_FOUND` `BUDGET_EXCEEDED` `STEP_LIMIT_EXCEEDED` `RUN_TIMEOUT` `RUN_CANCELLED` `AUTH_FAILED` `RATE_LIMITED` `VALIDATION_ERROR` `CONFIG_ERROR` `INTERNAL_ERROR`（值与名相同，如 `AGENT_NOT_FOUND="AGENT_NOT_FOUND"`）
+- `class ErrorCode(str, Enum)`，当前共 32 种，逐字：`AGENT_NOT_FOUND` `AGENT_VERSION_NOT_FOUND` `AGENT_VERSION_UNRUNNABLE` `MODEL_NOT_FOUND` `BRAIN_NOT_MAPPED` `BRAIN_PROFILE_NOT_FOUND` `BRAIN_PROFILE_CONFLICT` `BRAIN_PROFILE_IN_USE` `CAPABILITY_MISMATCH` `NO_FALLBACK_AVAILABLE` `TOOL_NOT_FOUND` `TOOL_PERMISSION_DENIED` `TOOL_APPROVAL_REQUIRED` `TOOL_EXECUTION_FAILED` `RUN_NOT_FOUND` `BUDGET_EXCEEDED` `STEP_LIMIT_EXCEEDED` `RUN_TIMEOUT` `RUN_CANCELLED` `AUTH_FAILED` `PERMISSION_DENIED` `RATE_LIMITED` `VALIDATION_ERROR` `CONFIG_ERROR` `INTERNAL_ERROR` `PROMPT_NOT_FOUND` `PROMPT_VERSION_NOT_FOUND` `KNOWLEDGE_SOURCE_NOT_FOUND` `GRAPH_NOT_FOUND` `GRAPH_STRUCTURE_UNAVAILABLE` `AVATAR_NOT_FOUND` `EVAL_RESULT_NOT_FOUND`（值与名相同，如 `AGENT_NOT_FOUND="AGENT_NOT_FOUND"`）
 - `class LubanError(Exception)`：属性 `code: ErrorCode`、`message: str`、`details: dict[str, Any]`、`retryable: bool`；`__init__(self, code: ErrorCode, message: str, *, details: dict|None=None, retryable: bool=False)`；`to_dict() -> {"error": {"code": str(code.value), "message", "details", "retryable"}}`；`__str__` 含 code 与 message
 - 语义子类（各固定 code，构造不收 code）：`CapabilityMismatchError(CAPABILITY_MISMATCH)`、`BudgetExceededError(BUDGET_EXCEEDED)`、`StepLimitExceededError(STEP_LIMIT_EXCEEDED)`、`RunTimeoutError(RUN_TIMEOUT)`、`RunCancelledError(RUN_CANCELLED)`、`ToolApprovalRequiredError(TOOL_APPROVAL_REQUIRED)`
 
@@ -76,7 +76,7 @@
 1. `pytest tests/lubanagent/core/` 全绿。
 2. 子进程测试：`python -c "import sys, lubanagent.core; assert not [m for m in sys.modules if m.split('.')[0] in {'sqlalchemy','fastapi','langchain','langchain_core','httpx'}]"` 通过。
 3. 序列化测试：`AgentDefinition`/`Run`/`TraceEvent`/`ModelDefinition` JSON 往返无损。
-4. 枚举值测试：`BrainProfile` 四值逐字；`ErrorCode` 21 个码全列。
+4. 标识测试：`BrainProfile` 四个初始常量逐字、合法自定义值/非法格式及 string OpenAPI；`ErrorCode` 32 个码全列。
 5. `LubanError.to_dict()` 结构测试；`AgentVersion` frozen 测试。
 6. `ruff check lubanagent/core tests/lubanagent/core` 无错。
 

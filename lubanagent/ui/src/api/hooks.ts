@@ -21,6 +21,12 @@ export type ModelDefinitionOut = components['schemas']['ModelDefinitionOut'];
 export type BrainMappingOut = components['schemas']['BrainMappingOut'];
 export type BrainMappingSetRequest = components['schemas']['BrainMappingSetRequest'];
 export type BrainProfile = components['schemas']['BrainProfile'];
+export type BrainProfileOut = components['schemas']['BrainProfileOut'];
+export type BrainProfilesOut = components['schemas']['BrainProfilesOut'];
+export type BrainProfileCreate = components['schemas']['BrainProfileCreate'];
+export type BrainProfilePatch = components['schemas']['BrainProfilePatch'];
+export type BrainProfileReference = components['schemas']['BrainProfileReference'];
+export type BrainProfileReferencesOut = components['schemas']['BrainProfileReferencesOut'];
 export type ToolDescriptor = components['schemas']['ToolDescriptor'];
 export type ToolResult = components['schemas']['ToolResult'];
 export type SkillOut = components['schemas']['SkillOut'];
@@ -102,7 +108,11 @@ export function useCreateAgent(): UseMutationResult<AgentDefinition, ApiError, A
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (definition) => unwrap(client.POST('/v1/agents', { body: definition })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['brain-profiles'] });
+      queryClient.invalidateQueries({ queryKey: ['brain-profile-references'] });
+      return queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
   });
 }
 
@@ -119,6 +129,8 @@ export function useCreateAgentVersion(
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['agents'] });
       queryClient.invalidateQueries({ queryKey: ['agents', key] });
+      queryClient.invalidateQueries({ queryKey: ['brain-profiles'] });
+      queryClient.invalidateQueries({ queryKey: ['brain-profile-references'] });
     },
   });
 }
@@ -237,8 +249,93 @@ export function useSetBrainMapping(): UseMutationResult<
   ApiError,
   BrainMappingSetRequest
 > {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body) => unwrap(client.PUT('/v1/brain-mappings', { body })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['brain-mappings'] }),
+  });
+}
+
+export function useBrainProfiles(): UseQueryResult<BrainProfilesOut, ApiError> {
+  return useQuery({
+    queryKey: ['brain-profiles'],
+    queryFn: () => unwrap(client.GET('/v1/brain-profiles')),
+  });
+}
+
+export function useBrainMappings(env?: string): UseQueryResult<BrainMappingOut[], ApiError> {
+  return useQuery({
+    queryKey: ['brain-mappings', env ?? 'current'],
+    queryFn: () => unwrap(client.GET('/v1/brain-mappings', { params: { query: { env } } })),
+    enabled: env !== '',
+  });
+}
+
+export function useBrainProfileReferences(
+  key: string,
+): UseQueryResult<BrainProfileReferencesOut, ApiError> {
+  return useQuery({
+    queryKey: ['brain-profile-references', key],
+    queryFn: () =>
+      unwrap(client.GET('/v1/brain-profiles/{key}/references', { params: { path: { key } } })),
+    enabled: key !== '',
+    staleTime: 0,
+  });
+}
+
+export function useCreateBrainProfile(): UseMutationResult<
+  BrainProfileOut,
+  ApiError,
+  BrainProfileCreate
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body) => unwrap(client.POST('/v1/brain-profiles', { body })),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['brain-profiles'] }),
+        queryClient.invalidateQueries({ queryKey: ['brain-mappings'] }),
+      ]).then(() => undefined),
+  });
+}
+
+export function useUpdateBrainProfile(): UseMutationResult<
+  BrainProfileOut,
+  ApiError,
+  { key: string; patch: BrainProfilePatch }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, patch }) =>
+      unwrap(client.PATCH('/v1/brain-profiles/{key}', { params: { path: { key } }, body: patch })),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['brain-profiles'] }),
+        queryClient.invalidateQueries({ queryKey: ['brain-mappings'] }),
+        queryClient.invalidateQueries({ queryKey: ['brain-profile-references'] }),
+      ]).then(() => undefined),
+  });
+}
+
+export function useDeleteBrainProfile(): UseMutationResult<
+  { [key: string]: boolean },
+  ApiError,
+  string
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (key) =>
+      unwrap(client.DELETE('/v1/brain-profiles/{key}', { params: { path: { key } } })),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['brain-profiles'] }),
+        queryClient.invalidateQueries({ queryKey: ['brain-mappings'] }),
+        queryClient.invalidateQueries({ queryKey: ['brain-profile-references'] }),
+      ]).then(() => undefined),
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['brain-profiles'] });
+      queryClient.invalidateQueries({ queryKey: ['brain-profile-references'] });
+    },
   });
 }
 

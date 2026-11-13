@@ -32,7 +32,7 @@ LubanAgent 是开源（Apache-2.0）的 ** Agent 起步基座**：Python ≥3.11
   3. `.lubanagent-upstream` 清单 + import-linter CI 守卫：上游不主动触碰用户领地（CI 拦截 user-owned 命中），显著降低合并冲突；不承诺任意 git merge 零冲突。
 - **升级契约**：用户克隆改造后能跟上游版本。CHANGELOG 按领地分类（`[framework]`/`[scaffold-seed]`/`[shared]`/`[migration]`/`[breaking]`）+ UPGRADE.md 合并指令。
 - **Agent 定义层**：定义本体是数据库记录（运行期可改、库内版本化），YAML 仅用于初始化导入 / 导出迁移，不是存储。
-- **逻辑大脑**：fast/smart/cheap/vision 四槽位解耦 Agent 与具体模型；切换模型 = 改库映射，不改代码不发版。
+- **逻辑大脑**：槽位目录存数据库，fast/smart/cheap/vision 只是四个初始预设，标识/名称/用途可编辑，也可新增；标识须匹配 `^[a-z][a-z0-9_-]{0,63}$`。切换模型 = 改环境映射，不改代码不发版。改名保留旧标识别名并移动所有环境映射，不改写 Agent/Run 历史快照；新保存版本使用当前标识。任何 Agent 的任一可运行历史版本仍引用主槽位、降级槽位或摘要记忆隐含的 cheap 时，后端必须拒绝删除并列出 Agent/版本/字段；预设也遵守同一规则，播种不得复活已删除槽位。
 - **一个引擎两种用法**：执行层统一跑在 LangGraph 上——普通 Agent = prebuilt agent + 治理包装（步数/预算/超时/取消/Trace，用户不写图）；确定性流程 = 手写 LangGraph 图；多 Agent 是 LangGraph 之上的 supervisor/子 Agent 委派拓扑。三者共享同一份能力件与治理，编排 Run 是会话 Run 的子 Run（预算继承、取消传播，见技术方案 §10.6）。
 - **监控采用 C 方案**：可插拔 `ObservabilityBackend` Protocol，默认 Langfuse 自部署（保数据主权），可选 LangSmith，可切 none；内部 DB 始终是 source of truth（双写）。不宣传"完全等价切换"。
 - **日志与排查**：`core/log_context` 用 ContextVar 贯穿 request/session/run/trace/parent/root/subject；同步线程继承执行上下文。结构化日志入 `application_logs`，查询、诊断 Run 树、UI 排查页只读真实持久化数据；异步落库失败不阻断业务，但队列满或写入失败可能丢批次，指标必须如实暴露。

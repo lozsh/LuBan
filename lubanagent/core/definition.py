@@ -75,6 +75,8 @@ class AgentDefinition(BaseModel):
     # 虚拟形象（展示用）：data/avatars/{key}/ 下的落盘文件名（avatar.svg/png/glb/gltf）；
     # None = 无形象（前端回退图标）。只进展示层，运行期逻辑零感知。
     avatar: str | None = None
+    # 聊天页是否展示形象区域；关闭保留文件，旧定义默认沿用显示行为。
+    show_avatar: bool = True
     instructions: str = ""
     prompt_variables: dict[str, str] = Field(default_factory=dict)
     # Prompt 库引用（双轨）：非空时落库前服务端解析 prompt 内容写入 instructions（快照落地），

@@ -26,22 +26,23 @@ export default function AgentEditorPage() {
   const [viewing, setViewing] = useState<number | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
-  // 首次加载（或切换 Agent）时用服务端定义初始化草稿；
-  // 保存成功后 draft 以 mutation 返回的快照为准，不被 refetch 覆盖
-  useEffect(() => {
-    if (!agentQuery.data) return;
-    setDraft((prev) =>
-      prev === null || prev.key !== agentQuery.data.key
-        ? normalizeDefinition(agentQuery.data)
-        : prev,
-    );
-  }, [agentQuery.data]);
-
+  // 先清旧 Agent 的页面状态，再从查询缓存初始化，避免清掉刚回填的草稿。
   useEffect(() => {
     setDraft(null);
     setViewing(null);
     setSavedMessage(null);
   }, [key]);
+
+  // 首次加载（或切换 Agent）时用服务端定义初始化草稿；
+  // 保存成功后 draft 以 mutation 返回的快照为准，不被 refetch 覆盖
+  useEffect(() => {
+    if (!agentQuery.data || agentQuery.data.key !== key) return;
+    setDraft((prev) =>
+      prev === null || prev.key !== agentQuery.data.key
+        ? normalizeDefinition(agentQuery.data)
+        : prev,
+    );
+  }, [key, agentQuery.data]);
 
   const save = () => {
     if (!draft) return;
@@ -57,7 +58,7 @@ export default function AgentEditorPage() {
     );
   };
 
-  if (agentQuery.isLoading || draft === null) {
+  if (agentQuery.isLoading || draft === null || draft.key !== key) {
     return (
       <div className="space-y-2 p-6 text-sm text-muted-foreground">
         {agentQuery.error ? (
@@ -85,9 +86,7 @@ export default function AgentEditorPage() {
         <div className="space-y-4 p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold tracking-tight">
-                Agent 定义编辑器 — {key}
-              </h1>
+              <h1 className="text-xl font-semibold tracking-tight">Agent 定义编辑器 — {key}</h1>
               <Badge variant="secondary">{STATUS_LABELS[draft.status] ?? draft.status}</Badge>
               <Badge variant="outline" className="font-mono">
                 v{draft.version}

@@ -94,6 +94,11 @@
             "title": "Role",
             "type": "string"
           },
+          "show_avatar": {
+            "default": true,
+            "title": "Show Avatar",
+            "type": "boolean"
+          },
           "skills": {
             "items": {
               "type": "string"
@@ -589,6 +594,8 @@
           "env": {
             "anyOf": [
               {
+                "maxLength": 32,
+                "minLength": 1,
                 "type": "string"
               },
               {
@@ -613,15 +620,247 @@
         "type": "object"
       },
       "BrainProfile": {
-        "description": "大脑槽位, 切换模型 = 改库映射, 不改代码。",
-        "enum": [
-          "fast",
-          "smart",
-          "cheap",
-          "vision"
-        ],
-        "title": "BrainProfile",
+        "pattern": "^[a-z][a-z0-9_-]{0,63}$",
         "type": "string"
+      },
+      "BrainProfileCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 512,
+            "title": "Description",
+            "type": "string"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env"
+          },
+          "key": {
+            "$ref": "#/components/schemas/BrainProfile"
+          },
+          "model_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Key"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name"
+        ],
+        "title": "BrainProfileCreate",
+        "type": "object"
+      },
+      "BrainProfileOut": {
+        "properties": {
+          "agent_count": {
+            "title": "Agent Count",
+            "type": "integer"
+          },
+          "aliases": {
+            "items": {
+              "$ref": "#/components/schemas/BrainProfile"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "key": {
+            "$ref": "#/components/schemas/BrainProfile"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reference_count": {
+            "title": "Reference Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "description",
+          "aliases",
+          "reference_count",
+          "agent_count"
+        ],
+        "title": "BrainProfileOut",
+        "type": "object"
+      },
+      "BrainProfilePatch": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BrainProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Key"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "BrainProfilePatch",
+        "type": "object"
+      },
+      "BrainProfileReference": {
+        "properties": {
+          "agent_key": {
+            "title": "Agent Key",
+            "type": "string"
+          },
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "current": {
+            "title": "Current",
+            "type": "boolean"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_key",
+          "agent_name",
+          "version",
+          "current",
+          "field"
+        ],
+        "title": "BrainProfileReference",
+        "type": "object"
+      },
+      "BrainProfileReferencesOut": {
+        "properties": {
+          "agent_count": {
+            "title": "Agent Count",
+            "type": "integer"
+          },
+          "key": {
+            "$ref": "#/components/schemas/BrainProfile"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/BrainProfileReference"
+            },
+            "title": "References",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "agent_count",
+          "references"
+        ],
+        "title": "BrainProfileReferencesOut",
+        "type": "object"
+      },
+      "BrainProfilesOut": {
+        "properties": {
+          "env": {
+            "title": "Env",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BrainProfileOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "env",
+          "items"
+        ],
+        "title": "BrainProfilesOut",
+        "type": "object"
       },
       "Budget": {
         "description": "运行预算上限, 任一为 None 表示该项不限。",
@@ -3512,7 +3751,7 @@
     },
     "/v1/brain-mappings": {
       "get": {
-        "description": "四槽位当前映射（工作台模型中心回显用）；env 缺省取 settings.env。",
+        "description": "当前环境的真实映射；槽位来自数据库目录，不再枚举四个预设。",
         "operationId": "list_brain_mappings_v1_brain_mappings_get",
         "parameters": [
           {
@@ -3522,6 +3761,8 @@
             "schema": {
               "anyOf": [
                 {
+                  "maxLength": 32,
+                  "minLength": 1,
                   "type": "string"
                 },
                 {
@@ -3598,6 +3839,201 @@
           }
         },
         "summary": "Set Brain Mapping",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/v1/brain-profiles": {
+      "get": {
+        "operationId": "list_brain_profiles_v1_brain_profiles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainProfilesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Brain Profiles",
+        "tags": [
+          "models"
+        ]
+      },
+      "post": {
+        "operationId": "create_brain_profile_v1_brain_profiles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrainProfileCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainProfileOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Brain Profile",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/v1/brain-profiles/{key}": {
+      "delete": {
+        "operationId": "delete_brain_profile_v1_brain_profiles__key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BrainProfile"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Delete Brain Profile V1 Brain Profiles  Key  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Brain Profile",
+        "tags": [
+          "models"
+        ]
+      },
+      "patch": {
+        "operationId": "update_brain_profile_v1_brain_profiles__key__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BrainProfile"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrainProfilePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainProfileOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Brain Profile",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/v1/brain-profiles/{key}/references": {
+      "get": {
+        "operationId": "brain_profile_references_v1_brain_profiles__key__references_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/BrainProfile"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrainProfileReferencesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Brain Profile References",
         "tags": [
           "models"
         ]

@@ -10,7 +10,12 @@ from lubanagent.persistence.models.misc import (
     McpServerRow,
     SkillRow,
 )
-from lubanagent.persistence.models.model_center import BrainMappingRow, ModelRow
+from lubanagent.persistence.models.model_center import (
+    BrainMappingRow,
+    BrainProfileAliasRow,
+    BrainProfileRow,
+    ModelRow,
+)
 from lubanagent.persistence.models.prompt import PromptRow, PromptVersionRow
 from lubanagent.persistence.models.run import RunRow
 from lubanagent.persistence.models.security import (
@@ -36,6 +41,8 @@ __all__ = [
     "ApprovalRow",
     "AuthSessionRow",
     "BrainMappingRow",
+    "BrainProfileAliasRow",
+    "BrainProfileRow",
     "CheckpointRow",
     "CostRecordRow",
     "EvalDatasetRow",

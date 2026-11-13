@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lubanagent.core import AgentDefinition, AgentStatus, AgentVersion, ErrorCode, LubanError
 from lubanagent.persistence.models import AgentRow, AgentVersionRow
+from lubanagent.persistence.repositories.model import ModelRepository
 
 
 class AgentRepository:
@@ -14,6 +15,7 @@ class AgentRepository:
 
     async def create_agent(self, definition: AgentDefinition) -> AgentDefinition:
         """落 agents 行 + version=definition.version 的 agent_versions 行。"""
+        definition = await ModelRepository(self._session).normalize_agent_brain(definition)
         row = AgentRow(
             key=definition.key,
             name=definition.name,
@@ -52,6 +54,7 @@ class AgentRepository:
         row = await self._session.scalar(select(AgentRow).where(AgentRow.key == agent_key))
         if row is None:
             raise LubanError(ErrorCode.AGENT_NOT_FOUND, f"Agent 不存在: {agent_key}")
+        definition = await ModelRepository(self._session).normalize_agent_brain(definition)
         self._session.add(
             AgentVersionRow(
                 agent_id=row.id,

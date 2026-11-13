@@ -3,6 +3,8 @@
 import json
 from datetime import UTC, datetime
 
+import pytest
+
 from lubanagent.core import (
     AgentDefinition,
     BrainConfig,
@@ -48,12 +50,31 @@ def test_agent_definition_round_trip() -> None:
 
 def test_agent_definition_defaults() -> None:
     definition = AgentDefinition(key="a", name="A")
+    assert definition.show_avatar is True
     assert definition.brain.profile is BrainProfile.SMART
     assert definition.memory.window_size == 20
     assert definition.knowledge.top_k == 5
     assert definition.io.input_type == "text"
     assert definition.version == 1
     assert definition.status.value == "draft"
+
+
+@pytest.mark.parametrize("show_avatar", [True, False])
+def test_agent_avatar_display_round_trip(show_avatar: bool) -> None:
+    definition = AgentDefinition(
+        key="a", name="A", avatar="avatar.svg", show_avatar=show_avatar
+    )
+    restored = _round_trip(AgentDefinition, definition)
+    assert restored.show_avatar is show_avatar
+    assert restored.avatar == "avatar.svg"
+
+
+def test_legacy_agent_definition_displays_avatar_by_default() -> None:
+    payload = {"key": "a", "name": "A", "avatar": "avatar.svg"}
+    restored = AgentDefinition.model_validate(payload)
+    assert restored.show_avatar is True
+    assert restored.avatar == "avatar.svg"
+    assert "show_avatar" not in payload
 
 
 def test_run_round_trip() -> None:

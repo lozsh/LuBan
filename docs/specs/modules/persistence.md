@@ -14,7 +14,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 ## 定位
 
-persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，核心表覆盖 Agent 定义版本化（`agents`/`agent_versions`）、Prompt 库（`prompts`/`prompt_versions`，与 agents 同型的指针 + 不可变快照）、运行执行记录（`runs`）、可观测双写（`traces`/`trace_events`/`token_usages`/`cost_records`/`export_failures`）、模型中心（`models`/`brain_mappings`）、能力/评测资产（`skills`/`mcp_servers`/`eval_datasets`/`eval_results`）、LangGraph 检查点（`checkpoints`）、审批记录（`approvals`）、知识/记忆（`knowledge_chunks`/`knowledge_sources`/`session_messages`/`session_summaries`/`long_term_memories`）、关联程序日志（`application_logs`）与平台访问控制（`permissions`/`roles`/`role_permissions`/`users`/`user_roles`/`auth_sessions`），共 30 张表；聚合根实体以 `AgentRow`/`PromptRow`/`RunRow`/`TraceRow` 为主，SQLAlchemy 声明基类为 `Base`（`lubanagent/persistence/base.py:6`）。数据库开发期 SQLite、生产 MySQL 8.0+，通过 `Database`/`create_database` 统一异步会话入口（`lubanagent/persistence/session.py:11`、`:36`）。
+persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，核心表覆盖 Agent 定义版本化（`agents`/`agent_versions`）、Prompt 库（`prompts`/`prompt_versions`，与 agents 同型的指针 + 不可变快照）、运行执行记录（`runs`）、可观测双写（`traces`/`trace_events`/`token_usages`/`cost_records`/`export_failures`）、模型中心（`models`/`brain_mappings`/`brain_profiles`/`brain_profile_aliases`）、能力/评测资产（`skills`/`mcp_servers`/`eval_datasets`/`eval_results`）、LangGraph 检查点（`checkpoints`）、审批记录（`approvals`）、知识/记忆（`knowledge_chunks`/`knowledge_sources`/`session_messages`/`session_summaries`/`long_term_memories`）、关联程序日志（`application_logs`）与平台访问控制（`permissions`/`roles`/`role_permissions`/`users`/`user_roles`/`auth_sessions`），共 32 张表；聚合根实体以 `AgentRow`/`PromptRow`/`RunRow`/`TraceRow` 为主，SQLAlchemy 声明基类为 `Base`（`lubanagent/persistence/base.py:6`）。数据库开发期 SQLite、生产 MySQL 8.0+，通过 `Database`/`create_database` 统一异步会话入口（`lubanagent/persistence/session.py:11`、`:36`）。
 
 ## 接口契约
 
@@ -44,12 +44,19 @@ persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，�
 | | `get_version` | `prompt_key: str, version: int` | `PromptVersion \| None` | 取指定版本快照 |
 | | `list_versions` | `prompt_key: str` | `list[PromptVersion]` | 按 `version` 降序；prompt 不存在返回空列表 |
 | | `list_prompts` | 无 | `list[PromptDefinition]` | 按 `id` 升序全量列出 |
-| `ModelRepository`（`repositories/model.py:11`） | `upsert_model` | `definition: ModelDefinition` | `None` | 按 `key` 存在则更新、不存在则插入；**写入前统一校验**：插入与更新两条路径均先调 `validate_model_connection`（连接边界/`params` 白名单，`repositories/model.py:15-45`），非法定义拒绝写入；更新路径请求 `base_url` 为 `None` 表示沿用旧行值（列表接口不返回旧连接地址），沿用后以合并值再校验 |
-| | `get_model` | `key: str` | `ModelDefinition \| None` | 读取经 `_to_domain`（`ModelDefinition.model_construct` 跳过校验器，`repositories/model.py:102-114`），历史脏记录可读取供管理界面安全展示；执行须再经 `create_openai_compatible` 构造入口校验并拒绝 |
+| `ModelRepository`（`repositories/model.py:28`） | `upsert_model` | `definition: ModelDefinition` | `None` | 按 `key` 存在则更新、不存在则插入；**写入前统一校验**：插入与更新两条路径均先调 `validate_model_connection`（连接边界/`params` 白名单，`repositories/model.py:32-71`），非法定义拒绝写入；更新路径请求 `base_url` 为 `None` 表示沿用旧行值（列表接口不返回旧连接地址），沿用后以合并值再校验 |
+| | `get_model` | `key: str` | `ModelDefinition \| None` | 读取经 `_to_domain`（`ModelDefinition.model_construct` 跳过校验器，`repositories/model.py:421-433`），历史脏记录可读取供管理界面安全展示；执行须再经 `create_openai_compatible` 构造入口校验并拒绝 |
 | | `list_models` | `enabled_only: bool = True` | `list[ModelDefinition]` | 读取同 `get_model`（`_to_domain` 跳过校验器语义） |
-| | `set_brain_mapping` | `env: str, profile: BrainProfile, model_key: str` | `None` | 按 `(env, profile)` upsert |
+| | `set_brain_mapping` | `env: str, profile: BrainProfile, model_key: str` | `None` | 持锁校验活动目录，解析别名后按 `(env, 当前 key)` upsert；未知/已删除槽位抛 `BRAIN_PROFILE_NOT_FOUND` |
 | | `has_brain_mapping` | `env: str, profile: BrainProfile` | `bool` | 该槽位是否已有映射行（不校验指向模型存在，供 `seed_defaults` 只填空位） |
-| | `get_brain_mapping` | `env: str, profile: BrainProfile` | `ModelDefinition \| None` | join `models` 取完整定义；读取同 `get_model`（`_to_domain` 跳过校验器语义） |
+| | `get_brain_mapping` | `env: str, profile: BrainProfile` | `ModelDefinition \| None` | 单次 JOIN 解析 alias→活动目录当前 key→mapping→model，避免并发改名两次查询空窗；未知、已删除或未映射返回 `None`；模型读取同 `get_model` |
+| | `list_brain_mappings` | `env: str` | `list[dict[str,str]]` | 按目录 id 列出该环境实际映射，只含活动槽位，字段 `env/profile/model_key` |
+| | `list_brain_profiles` | 无 | `list[dict[str,Any]]` | 按稳定 id 列出活动目录；`key/name/description/aliases/reference_count/agent_count`；aliases 不含当前 key |
+| | `create_brain_profile` | `key: BrainProfile, *, name: str, description: str = ""` | `dict[str,Any]` | 创建目录及统一预留标识；占用当前 key/旧别名抛 `BRAIN_PROFILE_CONFLICT`；显式创建已删除的当前 key 可复用原 id |
+| | `update_brain_profile` | `profile: BrainProfile, *, key/name/description = None` | `dict[str,Any]` | 编辑元信息；改名保留旧 alias 并原子移动全部环境映射；冲突抛 `BRAIN_PROFILE_CONFLICT` |
+| | `brain_profile_references` | `row: BrainProfileRow, *, current_read: bool = False` | `list[dict[str,Any]]` | 扫描全部已保存 Agent 快照（版本号无正数约束，0/负数与 graph stub 一并计入）；主/降级槽位及摘要记忆隐含 cheap；返回 Agent key/name、version、current、field |
+| | `delete_brain_profile` | `profile: BrainProfile` | `None` | 持锁后当前读引用，使用中抛 `BRAIN_PROFILE_IN_USE` 且不改目录/映射；无引用删除所有环境映射并留墓碑 |
+| | `normalize_agent_brain` | `definition: AgentDefinition` | `AgentDefinition` | 保存 Agent 前按稳定目录 id 排序、别名去重持锁，校验主/降级/摘要依赖，新版本保存当前 key |
 | `RunRepository`（`repositories/run.py:24`） | `create_run` | `run: Run` | `None` | 校验 `agent`/`agent_version` 存在，否则抛 `AGENT_NOT_FOUND`/`AGENT_VERSION_NOT_FOUND` |
 | | `get_run` | `run_id: str` | `Run \| None` | — |
 | | `update_run` | `run: Run` | `None` | 覆盖状态/输出/结束原因/用量/费用/error/时间戳；不存在抛 `RUN_NOT_FOUND` |
@@ -143,7 +150,7 @@ persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，�
 | id (Integer) | id (int) | ✓ | — | 主键 |
 | agent_id (Integer, FK→agents.id) | agent_id (int) | ✓ | — | → `agents`.`AgentRow` |
 | version (Integer) | version (int) | ✓ | — | 版本号，与 `agent_id` 联合唯一 |
-| definition (JSON) | definition (dict[str, Any]) | ✓ | — | `AgentDefinition` 全量序列化快照，不可变 |
+| definition (JSON) | definition (dict[str, Any]) | ✓ | — | `AgentDefinition` 全量序列化快照，不可变；新快照含 `show_avatar`，旧 JSON 缺字段读取时按默认 `true` 校验，原 JSON 不回写 |
 | status (String(32)) | status (str) | ✓ | — | 该版本发布时的 `AgentStatus` 快照 |
 | published_at (DateTime(tz)) | published_at (datetime \| None) | — | NULL | 发布时间 |
 | created_at (DateTime(tz)) | created_at (datetime) | ✓ | `func.now()`（server_default） | 创建时间，版本快照不可变故无 `updated_at` |
@@ -276,19 +283,30 @@ persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，�
 
 ### brain_mappings
 
-对应实体：`BrainMappingRow`（`models/model_center.py:34`）
+对应实体：`BrainMappingRow`（`models/model_center.py:32`）
 
 | DB 列（DB 类型） | 实体字段（代码类型） | 非空 | 默认值 | 说明 |
 |---|---|---|---|---|
 | id (Integer) | id (int) | ✓ | — | 主键 |
 | env (String(32)) | env (str) | ✓ | — | 环境标识（如 dev/prod），与 `profile` 联合唯一 |
-| profile (String(16)) | profile (str) | ✓ | — | `BrainProfile` 枚举值：`fast`/`smart`/`cheap`/`vision`（`lubanagent/core/brain.py:6`） |
-| model_key (String(128), FK→models.key) | model_key (str) | ✓ | — | → `models`.`ModelRow`，四槽位到具体模型的映射 |
+| profile (String(64)) | profile (str) | ✓ | — | 活动槽位的当前 key，匹配 `^[a-z][a-z0-9_-]{0,63}$`（`lubanagent/core/brain.py`） |
+| model_key (String(128), FK→models.key) | model_key (str) | ✓ | — | → `models`.`ModelRow`，动态槽位到具体模型的环境映射 |
 | created_at (DateTime(tz)) | created_at (datetime) | ✓ | `func.now()`（server_default） | 创建时间 |
 | updated_at (DateTime(tz)) | updated_at (datetime) | ✓ | `func.now()`（server_default + onupdate） | 更新时间，`set_brain_mapping` upsert 时自动刷新 |
 
 索引：
-- 唯一约束 `UniqueConstraint("env", "profile")`（`models/model_center.py:36`）— 支撑 `set_brain_mapping`/`get_brain_mapping` 的按 `(env, profile)` 精确定位。
+- 唯一约束 `UniqueConstraint("env", "profile")`（`models/model_center.py:34`）— 支撑 `set_brain_mapping`/`get_brain_mapping` 的按 `(env, profile)` 精确定位。
+
+### brain_profiles / brain_profile_aliases
+
+对应实体：`BrainProfileRow` / `BrainProfileAliasRow`（`models/model_center.py`），迁移 `0012_editable_brain_profiles.py`（revision `b2c3d4e5f6a7`）。
+
+| 表 | 列与约束 | 语义 |
+|---|---|---|
+| `brain_profiles` | `id` Integer PK；`key` String(64) unique；`name` String(128)；`description` String(512) 默认空串；`deleted` Boolean 默认 false；`revision` Integer 默认 0；`created_at/updated_at` DateTime(tz) | 稳定身份、可编辑标识/名称/用途；删除留墓碑；guarded UPDATE revision 共用写锁 |
+| `brain_profile_aliases` | `key` String(64) PK；`profile_id` Integer FK → brain_profiles.id | 当前 key 与所有历史 alias 在同一主键空间预留，避免新增/改名抢占旧标识；对外 aliases 排除当前 key |
+
+`0012` 将 `brain_mappings.profile`、`runs.brain_profile` 从 String(16) 扩至 String(64)，扫描现有映射、Agent 全部版本的主/降级标识及 Run 标识，连同四个预设登记目录，保留历史快照原值；非法历史标识在建表前拒绝升级。降级只允许未编辑的预设目录及预设历史数据；存在自定义/改名/已删除槽位、编辑过的名称或用途、历史 alias 或非预设 Agent/Run/映射标识时拒绝，不静默丢配置。
 
 ### eval_results
 
@@ -328,7 +346,7 @@ persistence 模块管理 LubanAgent 全部持久化状态的落库与访问，�
 | status (String(32)) | status (str) | ✓ | `RunStatus.PENDING`（`pending`） | 状态机枚举，见「行为」节 |
 | input (JSON) | input (dict[str, Any]) | ✓ | `dict` | 运行输入 |
 | output (Text) | output (str \| None) | — | NULL | 运行输出（终态填充） |
-| brain_profile (String(16)) | brain_profile (str) | ✓ | — | 本次运行使用的大脑槽位 |
+| brain_profile (String(64)) | brain_profile (str) | ✓ | — | 本次运行使用的大脑槽位历史标识，槽位改名不回写 |
 | model_key (String(128)) | model_key (str \| None) | — | NULL | 实际解析出的模型 key |
 | end_reason (String(32)) | end_reason (str \| None) | — | NULL | `EndReason` 枚举：`final_answer`/`step_limit`/`budget_exceeded`/`timeout`/`cancelled`/`error`/`human_handoff`（`lubanagent/core/run.py:22`） |
 | token_usage (JSON) | token_usage (dict[str, Any]) | ✓ | `dict` | `TokenUsage` 汇总快照（区别于明细表 `token_usages`） |
@@ -610,9 +628,12 @@ finish_run(run)
 - `PromptRepository.create_version` 与 Agent 同型：对同一 `(prompt_id, version)` 重复写入捕获 `IntegrityError` 后 `rollback()` 再抛 `VALIDATION_ERROR`，Prompt 版本快照永不允许覆盖；`prompt` 不存在抛 `PROMPT_NOT_FOUND`（来源：`repositories/prompt.py:63-82`）。
 - `resolve_prompt_reference` 的引用解析只发生在落库前（`api/routes/agents.py` 创建 Agent/追加版本端点）：`prompt_key` 为 `None` 原样返回（存量内嵌路径零行为变化）；prompt 不存在抛 `PROMPT_NOT_FOUND`、钉住版本不存在抛 `PROMPT_VERSION_NOT_FOUND`。运行期只读 `agent_versions` 快照，不回查 `prompts` 表（来源：`repositories/prompt.py:141-192`）。
 - Prompt 新版不自动作用于引用方：`resolve_prompt_reference` 在 `prompt_version` 非 `None` 时按钉住版解析（即使 `prompts.current_version` 已推进），整份 Agent 定义回传（含旧 `prompt_version`）发新版本会沿用旧 Prompt 内容；Agent 要吃 Prompt 当前版必须显式传 `prompt_version: null`（来源：`repositories/prompt.py:161-185`）。
-- `ModelRepository.set_brain_mapping`/`BrainMappingRow` 对同一 `(env, profile)` 只允许一条记录，重复设置走 upsert 更新而非新增（来源：`repositories/model.py:52-65`、`models/model_center.py:36`）。
-- `ModelRepository.upsert_model` 在插入与更新两条写入路径上均先调 `validate_model_connection`（`lubanagent/core/model.py:83-96`）：`api_key_env` 环境变量名格式、`base_url` 禁凭证/查询参数/片段、`params` 禁连接覆盖键/秘密键/`[REDACTED]` 占位值、`factory="openai_compat"` 时 `params` 键限 `_OPENAI_PARAMS` 白名单；非法定义拒绝写入（来源：`repositories/model.py:15-45`）。更新语义：请求 `base_url` 为空表示沿用旧值（列表接口不返回旧连接地址，`repositories/model.py:37-45`）。
-- `ModelRepository._to_domain` 用 `ModelDefinition.model_construct` 构造领域对象、跳过 pydantic 校验器（来源：`repositories/model.py:102-114`）：历史脏记录（校验收紧前入库的自定义 `params` 等）仍可读取供管理界面安全展示，但执行必须经 `create_openai_compatible` 构造入口再次校验并拒绝，不会拿脱敏占位值调用（`validate_model_connection` 拒绝含 `[REDACTED]` 的 `params`，`lubanagent/model/openai_compat.py:27-35`）。
+- `ModelRepository.set_brain_mapping`/`BrainMappingRow` 对同一 `(env, profile)` 只允许一条记录，重复设置走 upsert 更新而非新增（来源：`repositories/model.py:84-96`、`models/model_center.py:34`）。
+- **目录身份与快照独立**：改名保留原 key 为别名，原子移动所有环境映射，不重写 Agent/Run 历史值；新保存的 Agent 主/降级配置解析为当前 key。预设与自定义槽位均可编辑/删除，唯一删除边界是所有已保存可运行历史版本的实际依赖（含 `memory.summary` 隐含 cheap），409 details 返回真实 Agent/版本/字段；只修改当前版本不能解除旧版本引用（来源：`repositories/model.py`、`repositories/agent.py`）。
+- **并发删除与保存共用目录锁**：Agent 保存、目录改名/删除和映射写入对稳定目录 id 做 guarded UPDATE；Agent 按 id 排序且 alias 去重。删除持锁后用 MySQL 当前读扫描版本，避免 repeatable-read 旧快照；SQLite 在 nested SAVEPOINT 前启动真实写事务，后续 API 校验失败可整体回滚目录和映射。唯一标识冲突转 `BRAIN_PROFILE_CONFLICT`，不留下部分写入（来源：`repositories/model.py`）。
+- **播种不复活用户配置**：`seed_brain_profiles` 对当前/历史标识已有记录时跳过，保留墓碑和改名；`seed_defaults` 只为仍活动的初始预设补空映射。显式 POST 删除后的当前 key 可重新启用原身份，但不会自动恢复删除前映射（来源：`app/lifespan.py`、`repositories/model.py`）。
+- `ModelRepository.upsert_model` 在插入与更新两条写入路径上均先调 `validate_model_connection`（`lubanagent/core/model.py:83-96`）：`api_key_env` 环境变量名格式、`base_url` 禁凭证/查询参数/片段、`params` 禁连接覆盖键/秘密键/`[REDACTED]` 占位值、`factory="openai_compat"` 时 `params` 键限 `_OPENAI_PARAMS` 白名单；非法定义拒绝写入（来源：`repositories/model.py:32-71`）。更新语义：请求 `base_url` 为空表示沿用旧值（列表接口不返回旧连接地址，`repositories/model.py:55-62`）。
+- `ModelRepository._to_domain` 用 `ModelDefinition.model_construct` 构造领域对象、跳过 pydantic 校验器（来源：`repositories/model.py:421-433`）：历史脏记录（校验收紧前入库的自定义 `params` 等）仍可读取供管理界面安全展示，但执行必须经 `create_openai_compatible` 构造入口再次校验并拒绝，不会拿脱敏占位值调用（`validate_model_connection` 拒绝含 `[REDACTED]` 的 `params`，`lubanagent/model/openai_compat.py:27-35`）。
 - `TraceWriter.finish_run` 拒绝对非终态（非 `COMPLETED`/`FAILED`/`CANCELLED`）的 `Run` 调用，命中 `_TERMINAL_EVENT` 映射缺失即抛 `ErrorCode.VALIDATION_ERROR`（来源：`observability/trace/writer.py:97-103`）。
 - `TraceRepository.add_event`/`finish_trace` 要求对应 `run_id` 已存在 `traces` 头行，否则抛 `ErrorCode.RUN_NOT_FOUND`；`RunRepository.update_run` 要求 `runs.id` 已存在，否则同样抛 `RUN_NOT_FOUND`（来源：`repositories/trace.py:45`、`:82`、`repositories/run.py:78`）——即 Trace/事件明细必须依附已落库的 Run，不可孤立写入。
 - `EvalRepository.save_report` 要求 `report.dataset_key` 对应的 `eval_datasets` 行已存在，否则抛 `ErrorCode.VALIDATION_ERROR`（数据集须先经 `create_dataset` 登记，来源：`repositories/eval.py:64-72`）。
@@ -627,7 +648,7 @@ finish_run(run)
 
 | 术语 | 语义 |
 |---|---|
-| 大脑槽位（brain_profile） | `fast`/`smart`/`cheap`/`vision` 四个逻辑角色，`brain_mappings` 表把 `(env, profile)` 映射到具体 `models.key`；切换模型只需改这张表的映射行，不改代码不发版（`lubanagent/core/brain.py:6`）。 |
+| 大脑槽位（brain_profile） | 可扩展逻辑角色，四个初始预设为 `fast`/`smart`/`cheap`/`vision`；目录稳定 id 与可编辑 key 分开，旧 key 作为 alias 保留，`brain_mappings` 把 `(env, 当前 key)` 映射到 `models.key`（`core/brain.py`、`models/model_center.py`）。 |
 | 编排 Run / 子 Run | `runs.parent_run_id` 非空时表示该 Run 是某个父 Run（多 Agent 编排入口）的子 Run，与父 Run 共享预算继承、取消传播语义（架构 §10.6），persistence 层仅存储该外键关系，不做预算/取消的业务逻辑。 |
 | 双写模型 | 观测数据的内部 DB 落库（`runs`/`traces`/`trace_events`/`token_usages`/`cost_records`，`TraceWriter` 负责）与外部后端外发（Langfuse/LangSmith 等，失败落 `export_failures`）并存的架构决策；内部 DB 恒为 source of truth，外发可关闭不影响核心功能（架构 §6.1）。 |
 | 内容 hash（content_hash） | `SkillRepository.upsert` 用于判断 Skill 是否需要更新版本的依据：仅当新 `SkillPackage.content_hash` 与 `manifest` 中存量 hash 不同才推进 `version`/`manifest`，否则只更新 `name`/`enabled`（`repositories/skill.py:31-36`）。 |

@@ -52,7 +52,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 ### RPC / MQ / Cron
 
-无。本模块不含 RPC/MQ/Cron 接口；HTTP 层面的模型注册/大脑映射管理接口（`GET/PUT /models`、`GET/PUT /brain-mappings`）属于 `lubanagent/api/routes/models.py`，不在本模块范围（本模块被其调用，见"上下游"节）。
+无。本模块不含 RPC/MQ/Cron 接口；HTTP 层面的模型注册、可编辑槽位目录与环境映射管理接口（`GET/PUT /models`、`GET/POST /brain-profiles`、`PATCH/DELETE /brain-profiles/{key}`、`GET /brain-profiles/{key}/references`、`GET/PUT /brain-mappings`）属于 `lubanagent/api/routes/models.py`，详见 `api-app-cli` 模块。
 
 ## 数据模型
 
@@ -60,7 +60,7 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 - `ModelCapability`（`lubanagent/core/model.py:120-130`）：`chat: bool = True`、`streaming: bool = True`、`tool_calling: bool = False`、`structured_output: bool = False`、`vision: bool = False`、`reasoning: bool = False`、`context_window: int = 8192`、`max_output: int = 4096`。
 - `ModelDefinition`（`lubanagent/core/model.py:133-170`）：`key: str`、`provider: str`、`model_name: str`、`factory: str`、`capability: ModelCapability`、`params: dict[str, Any]`、`base_url: str | None`、`api_key_env: str | None`、`enabled: bool = True`。**不存密钥本体**，只存环境变量名 `api_key_env`。构造即校验：`api_key_env`/`base_url` 两个 `field_validator` + `model_validator(mode="after")` 调用 `validate_model_connection`（`lubanagent/core/model.py:148-170`），非法定义在构造期即被拒绝；`model_config` 设 `hide_input_in_errors=True`，校验错误不回显输入值。
-- `BrainProfile`（`lubanagent/core/brain.py:6-12`，`str, Enum`）：`FAST`/`SMART`/`CHEAP`/`VISION` 四值。
+- `BrainProfile`（`lubanagent/core/brain.py`）：受约束的可扩展字符串，匹配 `^[a-z][a-z0-9_-]{0,63}$`；保留 `FAST="fast"`/`SMART="smart"`/`CHEAP="cheap"`/`VISION="vision"` 与 `.value`。这四个常量是初始预设，枚举迭代不代表当前数据库目录。
 
 同文件（`lubanagent/core/model.py`）提供模型写入/脱敏边界三函数（不属于 `lubanagent.model` 包导出面，调用方从 `lubanagent.core.model` 直接导入，消费方为 `openai_compat`/`ModelRepository`/`api.routes.models`）。秘密键/凭证 URL/bearer 字符串的识别规则（`is_secret_key`/`_unsafe_url`/`normalized_key`/`redact_value`）自 H07 起上移至共享脱敏组件 `lubanagent/core/redact.py`，`model.py` 经 `from lubanagent.core.redact import _REDACTED, _unsafe_url, is_secret_key, normalized_key` 复用（`core/model.py:9`），三个公开函数签名与行为不变：
 
@@ -72,14 +72,15 @@ TEMPLATE-LOCK: 本文件章节锁定为以下清单，禁止新增/改名/调序
 
 `ModelDefinition`/大脑映射的库内持久化定义在 `lubanagent/persistence/models/model_center.py`（只读交叉引用，不在本模块文档维护权威定义）：
 
-- 表 `models`（`ModelRow`，`lubanagent/persistence/models/model_center.py:13-31`）：`key`（唯一）、`provider`、`model_name`、`factory`、`capability`（JSON）、`params`（JSON）、`base_url`、`api_key_env`、`enabled`、`created_at`、`updated_at`。
-- 表 `brain_mappings`（`BrainMappingRow`，`lubanagent/persistence/models/model_center.py:34-47`）：`env` + `profile` 联合唯一约束，`model_key` 外键指向 `models.key`。
+- 表 `models`（`ModelRow`，`lubanagent/persistence/models/model_center.py:13-29`）：`key`（唯一）、`provider`、`model_name`、`factory`、`capability`（JSON）、`params`（JSON）、`base_url`、`api_key_env`、`enabled`、`created_at`、`updated_at`。
+- 表 `brain_mappings`（`BrainMappingRow`，`lubanagent/persistence/models/model_center.py:32-43`）：`env` + `profile` 联合唯一约束，`model_key` 外键指向 `models.key`。
+- 表 `brain_profiles` / `brain_profile_aliases`：稳定目录 id、可编辑 key/name/description、墓碑与统一当前/历史标识空间；改名及删除约束由 `ModelRepository` 执行，完整字段与迁移见 `persistence` 模块。解析存储会把旧 alias 解析到当前 key，运行期仍可读旧 Agent 快照。
 
 读写入口是 `lubanagent/persistence/repositories/model.py` 的 `ModelRepository`（`upsert_model`/`get_model`/`list_models`/`set_brain_mapping`/`get_brain_mapping`），`ModelRepository` 结构上满足本模块的 `BrainMappingStore` Protocol（`lubanagent/model/brain_resolver.py:15-19`），但本模块不直接 import 它，由上层（`runtime`）在运行时注入。
 
 索引：
 - `models.key`（唯一）— 模型注册键查找与外键引用基础（`lubanagent/persistence/models/model_center.py:17`）。
-- `brain_mappings(env, profile)`（唯一约束）— 保证同环境下每个大脑槽位只有一条当前映射（`lubanagent/persistence/models/model_center.py:36`）。
+- `brain_mappings(env, profile)`（唯一约束）— 保证同环境下每个大脑槽位只有一条当前映射（`lubanagent/persistence/models/model_center.py:34`）。
 
 ## 行为
 
@@ -136,10 +137,10 @@ create_chat_model(definition)
 - `api_key_env` 为 `None`（如 `ollama` 本地服务）时向 `ChatOpenAI` 传字面量 `"EMPTY"`（OpenAI 客户端要求非空 key），不视为错误（来源：`lubanagent/model/openai_compat.py:37-38`）。
 - `api_key_env` 非空但对应环境变量未设置/为空字符串 → 直接抛 `LubanError(ErrorCode.CONFIG_ERROR)`，不做静默降级（来源：`lubanagent/model/openai_compat.py:40-46`）。
 - `params` 字段同时承载模型构造参数（如 `temperature`/`max_tokens`）与框架计费字段（`input_price_per_1k`/`output_price_per_1k`，供 `BudgetGuard`/`lubanagent/observability/cost/pricing.py` 读取），构造 `ChatOpenAI` 前会用 `_FRAMEWORK_RESERVED_PARAMS`（frozenset，当前仅两个计费键）摘除计费字段，否则会被 SDK 当非法参数拒收（来源：`lubanagent/model/openai_compat.py:50-57`）。
-- 模型写入/构造统一过 `validate_model_connection` 连接边界（`lubanagent/core/model.py:83-96`），三个入口都覆盖：`ModelDefinition` 的 `model_validator`（`lubanagent/core/model.py:162-170`）、`ModelRepository.upsert_model` 两条写入路径（`lubanagent/persistence/repositories/model.py:15-45`）、`create_openai_compatible` 构造入口先校验后读密钥（`lubanagent/model/openai_compat.py:27-35`）。
+- 模型写入/构造统一过 `validate_model_connection` 连接边界（`lubanagent/core/model.py:83-96`），三个入口都覆盖：`ModelDefinition` 的 `model_validator`（`lubanagent/core/model.py:162-170`）、`ModelRepository.upsert_model` 两条写入路径（`lubanagent/persistence/repositories/model.py:32-71`）、`create_openai_compatible` 构造入口先校验后读密钥（`lubanagent/model/openai_compat.py:27-35`）。
 - `openai_compat` 的 `params` 白名单收紧为 `_OPENAI_PARAMS`（`lubanagent/core/model.py:36-52`）：此前任意 `params` 会透传给 `ChatOpenAI` 构造并全量回显；存量含自定义 `params` 的定义升级后不可再执行、列表只显示 `[REDACTED]`，需迁移为白名单字段（升级动作见 `UPGRADE.md` §5）。
 - `base_url` 只禁凭证（userinfo）/查询参数/片段及密钥形 query 键，不一刀切禁内网——本地 vLLM/Ollama 等 OpenAI 兼容内网地址保留（`lubanagent/core/model.py:67-69` `_unsafe_connection_url`）；模型管理属受信管理面。
-- 历史脏数据读取语义：`ModelRepository._to_domain` 用 `ModelDefinition.model_construct` 跳过校验器（`lubanagent/persistence/repositories/model.py:102-114`），脏记录可读取供管理界面安全展示，但执行必须经 `create_openai_compatible` 构造入口再次校验并拒绝（`validate_model_connection` 拒绝含 `[REDACTED]` 占位值的 params）。
+- 历史脏数据读取语义：`ModelRepository._to_domain` 用 `ModelDefinition.model_construct` 跳过校验器（`lubanagent/persistence/repositories/model.py:421-433`），脏记录可读取供管理界面安全展示，但执行必须经 `create_openai_compatible` 构造入口再次校验并拒绝（`validate_model_connection` 拒绝含 `[REDACTED]` 占位值的 params）。
 - 脱敏函数只产展示副本：`redact_model_params`/`redact_registered_model_params`（`lubanagent/core/model.py:55-64,99-117`）的输出仅用于展示，不得用副本执行；管理界面输出的 `params` 经 `redact_registered_model_params` 脱敏，历史脏数据可展示但秘密不回显。
 - `BrainResolver` 不在解析器层缓存映射，每次 `resolve()` 都直接查 `store`；改映射后下一次 `resolve` 立即生效，不发版（代码强制，来源：`lubanagent/model/brain_resolver.py:1,34` docstring；契约验收场景见 `docs/contracts/D1-2-model.md:128`）。
 - 能力匹配在 Run 启动前做（非运行中途）：`required_capabilities` 推导规则为 —— `"chat"` 恒需；`agent.tools` 非空 → 追加 `"tool_calling"`；`agent.io.output_schema` 非空 → 追加 `"structured_output"`；`agent.io.input_type == "multimodal"` → 追加 `"vision"`（来源：`lubanagent/model/capability.py:27-36`）。
@@ -155,7 +156,7 @@ create_chat_model(definition)
 
 | 术语 | 语义 |
 |---|---|
-| `BrainProfile` | 逻辑大脑四槽位枚举：`fast`/`smart`/`cheap`/`vision`，用于解耦 Agent 定义与具体模型（`lubanagent/core/brain.py:6-12`）。 |
+| `BrainProfile` | 可扩展逻辑大脑标识，四个初始预设为 `fast`/`smart`/`cheap`/`vision`；目录和别名存数据库，解耦 Agent 定义与具体模型（`lubanagent/core/brain.py`）。 |
 | `ModelDefinition` | 模型注册记录（pydantic 值对象）：`key`+`provider`+`model_name`+`factory`+`capability`+`params`+`base_url`+`api_key_env`+`enabled`；切换模型 = 改库里映射指向另一个 `key`，不改代码不发版；构造即校验连接边界（`lubanagent/core/model.py:133-170`）。 |
 | `ModelCapability` | 模型能力声明清单（八字段布尔+两整型），是大脑映射校验与运行前能力校验的依据（`lubanagent/core/model.py:120-130`）。 |
 | `BrainResolution` | 一次大脑解析的结果快照：请求的 `profile`、最终 `definition`、是否降级 `used_fallback`、实际命中的 `resolved_profile`、降级留痕 `fallback_events`（`lubanagent/model/brain_resolver.py:22-30`）。 |
@@ -190,5 +191,5 @@ create_chat_model(definition)
 | `lubanagent.cli`（`main.py`） | `from lubanagent.model import BrainResolver, create_chat_model` | CLI 场景下的模型解析与构造（`lubanagent/cli/main.py:29`） |
 | `lubanagent.observability.evals`（`replay.py`） | `from lubanagent.model import fake_definition` | 评测重放场景下用 `fake_definition` 构造零密钥模型定义，配合 `ModelRepository.get_brain_mapping` 读原始映射做对比（`lubanagent/observability/evals/replay.py:12,64`） |
 | `lubanagent.observability.cost`（`pricing.py`） | 读取 `ModelDefinition.params` 中的 `input_price_per_1k`/`output_price_per_1k` | 成本计算依赖本模块 `ModelDefinition.params` 里的计费字段命名约定（`lubanagent/observability/cost/pricing.py:5-6`，字段来源于本模块 `openai_compat.py:52-55` 的保留字段约定） |
-| `lubanagent.api.routes.models` | `ModelRepository`（不直接调用本模块函数，但复用本模块的 `ModelDefinition` 类型做请求/响应模型） | `PUT/GET /models`、`GET/PUT /brain-mappings` 路由用 `ModelDefinition` 作为请求体/依据类型，脱敏后输出 `ModelDefinitionOut`（`lubanagent/api/routes/models.py:1-73`） |
+| `lubanagent.api.routes.models` | `ModelRepository`（不直接调用本模块函数，但复用 `core.ModelDefinition` 类型做请求/响应模型） | 模型注册、槽位目录 CRUD/使用列表、动态环境映射；模型脱敏输出 `ModelDefinitionOut`，槽位生命周期规则见 `persistence`（`lubanagent/api/routes/models.py`） |
 | 外部模型 API（DeepSeek/Qwen/GLM/vLLM/Ollama） | `ChatOpenAI(...).invoke()/.stream()`（由 `runtime` 等上层实际发起调用） | 本模块负责"构造出"客户端实例，实际推理请求由持有该实例的上层（`runtime.AgentLoop`）发起 |

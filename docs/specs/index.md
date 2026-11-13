@@ -25,7 +25,7 @@ LubanAgent 是开源（Apache-2.0）的 Agent 工程基座：Python ≥3.11 + La
 | knowledge-memory | 最小 RAG 管线（多格式摄入/检索/Embedding）+ 防错答守门（相关度阈值/知识时效/全 miss 拒答短路）+ 工作台知识库管理（KnowledgeSourceManager + /v1/knowledge/* 托管源 CRUD/重切/检索测试）+ 会话/摘要/长期记忆策略，均为运行期可选能力 | `modules/knowledge-memory.md` |
 | observability-trace-cost | Trace 写入（DB source of truth）+ 应用日志关联落库（有界异步队列与失败指标）+ 成本治理（估算/定价/归因/建议）+ 评测体系（断言含拒答硬指标/LLM-judge/回归/A-B 对比） | `modules/observability-trace-cost.md` |
 | observability-adapters | 可插拔 ObservabilityBackend 适配器（Langfuse/LangSmith/noop）、失败隔离与降级、export_failures 留痕 | `modules/observability-adapters.md` |
-| persistence | SQLAlchemy 模型 + 仓储层 + Alembic 迁移，30 张表（含 Prompt 库 prompts/prompt_versions、知识库 knowledge_sources、审批记录 approvals、关联日志 application_logs、平台 RBAC security 表），是几乎所有其他模块的数据落地点 | `modules/persistence.md` |
+| persistence | SQLAlchemy 模型 + 仓储层 + Alembic 迁移，32 张表（含可编辑大脑目录 brain_profiles/brain_profile_aliases、Prompt 库、知识库、审批记录、关联日志、平台 RBAC），是几乎所有其他模块的数据落地点 | `modules/persistence.md` |
 | api-app-cli | REST/SSE 接入路由、API Key / DB 会话 / AuthProvider 与平台 RBAC 裁决、日志与诊断查询、`create_app()` 装配根、`luban` 命令行 | `modules/api-app-cli.md` |
 | watchdog | 外部 Watchdog 控制回路（默认关）：周期巡检 RUNNING Run 进展信号（stale_events/long_running）、WATCHDOG_ALERT 告警留痕、可插拔处置（默认只告警，可注入自动取消）；取消经回调绑定不 import runtime | `modules/watchdog.md` |
 | app-user-land | 用户领地装配根 + 客服示例（Agent/Tool/Graph/Team/Skill/知识源）+ 部门项目问答范本（dept-project + project-docs）+ 独立 Mock 业务服务 | `modules/app-user-land.md` |

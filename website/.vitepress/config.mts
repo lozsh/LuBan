@@ -1,5 +1,159 @@
 import { defineConfig } from 'vitepress';
 import { withMermaid } from 'vitepress-plugin-mermaid';
+import { writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import type { ElementContent } from 'hast';
+import type { ShikiTransformer } from 'shiki';
+
+type CommentRange = { start: number; end: number };
+const COMMENT_STATE = Symbol('luban:copy-comments');
+type CommentState = { [COMMENT_STATE]?: CommentRange[][] };
+
+/** 这些注释承载执行、静态检查或许可信息，不能当成解释文字删掉。 */
+const PRESERVED_COMMENT = /#!|coding\s*[:=]|SPDX-|copyright|licensed\s+under|@license|@preserve|@ts-|type\s*:|noqa\b|pylint\s*:|pyright\s*:|mypy\s*:|ruff\s*:|eslint|tslint|stylelint|prettier|fmt\s*:|isort\s*:|shellcheck\b|go:|noinspection|istanbul\s+ignore|c8\s+ignore|[@#]__PURE__|webpack\w*\s*:|sourceMappingURL=|sourceURL=/i;
+const LICENSE_COMMENT = /SPDX-|copyright|\blicen[cs]e(?:d)?\b|@preserve/i;
+
+function nodeText(node: ElementContent): string {
+  if (node.type === 'text') return node.value;
+  return node.type === 'element' ? node.children.map(nodeText).join('') : '';
+}
+
+/** 分割高亮节点时保留样式，只改变复制忽略区域，不改文档里的代码。 */
+function sliceNodes(nodes: ElementContent[], start: number, end: number): ElementContent[] {
+  const result: ElementContent[] = [];
+  let offset = 0;
+  for (const node of nodes) {
+    const length = nodeText(node).length;
+    const from = Math.max(0, start - offset);
+    const to = Math.min(length, end - offset);
+    if (from < to) {
+      if (node.type === 'text') result.push({ ...node, value: node.value.slice(from, to) });
+      else if (node.type === 'element') {
+        result.push({ ...node, properties: { ...node.properties }, children: sliceNodes(node.children, from, to) });
+      }
+    }
+    offset += length;
+  }
+  return result;
+}
+
+/** 使用词法作用域而非颜色或“# / //”正则；字符串、heredoc、YAML 提示词均保留。 */
+export const inlineCommentCopyTransformer: ShikiTransformer = {
+  name: 'luban:copy-without-explanatory-comments',
+  preprocess(source) {
+    const { tokens } = this.codeToTokens(source, {
+      ...this.options,
+      includeExplanation: 'scopeName',
+    });
+    const comments: (CommentRange & { block: boolean })[] = [];
+    for (const line of tokens) {
+      for (const token of line) {
+        let offset = token.offset;
+        for (const part of token.explanation || []) {
+          const scopes = part.scopes.map((scope) => scope.scopeName);
+          const commentIndex = scopes.findIndex((scope) => scope.startsWith('comment.'));
+          const literalIndex = scopes.findIndex((scope) => scope.startsWith('string.'));
+          if (commentIndex >= 0 && (literalIndex < 0 || literalIndex > commentIndex)) {
+            const block = scopes[commentIndex].includes('.block');
+            const previous = comments[comments.length - 1];
+            if (previous && previous.block === block &&
+                (previous.end === offset || (block && /^[\r\n]+$/.test(source.slice(previous.end, offset))))) {
+              previous.end = offset + part.content.length;
+            } else {
+              comments.push({ start: offset, end: offset + part.content.length, block });
+            }
+          }
+          offset += part.content.length;
+        }
+      }
+    }
+    // 行注释许可证往往跨多行；命中许可声明时保留整个连续独占行注释组。
+    const licenseRanges = new Set<CommentRange>();
+    let group: typeof comments = [];
+    const finishGroup = () => {
+      if (group.some((range) => LICENSE_COMMENT.test(source.slice(range.start, range.end)))) {
+        group.forEach((range) => licenseRanges.add(range));
+      }
+      group = [];
+    };
+    for (const range of comments) {
+      const lineStart = source.lastIndexOf('\n', range.start - 1) + 1;
+      const lineEnd = source.indexOf('\n', range.end);
+      const standalone = !range.block && !source.slice(lineStart, range.start).trim() &&
+        !source.slice(range.end, lineEnd < 0 ? source.length : lineEnd).trim();
+      if (!standalone) {
+        finishGroup();
+        continue;
+      }
+      const previous = group[group.length - 1];
+      if (previous && !/^[\t ]*\r?\n[\t ]*$/.test(source.slice(previous.end, range.start))) finishGroup();
+      group.push(range);
+    }
+    finishGroup();
+    const explanatory = comments.filter((range) => !licenseRanges.has(range) &&
+      !PRESERVED_COMMENT.test(source.slice(range.start, range.end)));
+    let offset = 0;
+    (this.meta as CommentState)[COMMENT_STATE] = source.split('\n').map((line) => {
+      const ranges = explanatory
+        .filter((range) => range.start < offset + line.length && range.end > offset)
+        .map((range) => ({ start: Math.max(0, range.start - offset), end: Math.min(line.length, range.end - offset) }));
+      offset += line.length + 1;
+      return ranges;
+    });
+  },
+  code(code) {
+    const rangesByLine = (this.meta as CommentState)[COMMENT_STATE] || [];
+    const ignoredLines = new Set<ElementContent>();
+    this.lines.forEach((line, index) => {
+      // VitePress 的 diff / highlight 注解先处理；不碰已被它移除的行。
+      if (!code.children.includes(line)) return;
+      const text = nodeText(line);
+      const ranges = (rangesByLine[index] || [])
+        .map((range) => ({ start: range.start, end: Math.min(range.end, text.length) }))
+        .filter((range) => range.start < range.end);
+      if (!ranges.length) return;
+      const kept = ranges.reduce((value, range) => value.slice(0, range.start) + ' '.repeat(range.end - range.start) + value.slice(range.end), text);
+      if (!kept.trim()) {
+        this.addClassToHast(line, ['vp-copy-ignore', 'docs-code-comment']);
+        ignoredLines.add(line);
+        return;
+      }
+      const children = line.children;
+      const result: ElementContent[] = [];
+      let offset = 0;
+      for (const range of ranges) {
+        const tail = !text.slice(range.end).trim();
+        const gap = tail ? (text.slice(offset, range.start).match(/[\t ]+$/)?.[0].length || 0) : 0;
+        const start = range.start - gap;
+        const end = tail ? text.length : range.end;
+        result.push(...sliceNodes(children, offset, start));
+        // 行中块注释也可能是词法分隔符；删除后不得把两个标识符粘在一起。
+        if (!tail && start > 0 && end < text.length && !/\s/.test(text[start - 1]) && !/\s/.test(text[end])) {
+          result.push({ type: 'text', value: ' ' });
+        }
+        result.push({
+          type: 'element', tagName: 'span',
+          properties: {
+            class: `vp-copy-ignore docs-code-comment${tail ? ' docs-inline-comment' : ''}`,
+            title: '解释注释，复制代码时不包含',
+          },
+          children: sliceNodes(children, start, end),
+        });
+        offset = end;
+      }
+      result.push(...sliceNodes(children, offset, text.length));
+      line.children = result;
+    });
+    // 注释独占一行时，连同分隔换行一起忽略，避免复制出一串空白行。
+    code.children = code.children.map((node, index, nodes) => {
+      if (node.type === 'text' && node.value === '\n' &&
+          (ignoredLines.has(nodes[index - 1]) || (index === nodes.length - 2 && ignoredLines.has(nodes[index + 1])))) {
+        return { type: 'element', tagName: 'span', properties: { class: 'vp-copy-ignore' }, children: [node] };
+      }
+      return node;
+    });
+  },
+};
 
 // GitHub Pages 项目页部署时用 DOCS_BASE=/<repo>/ npm run build 覆盖
 const base = process.env.DOCS_BASE || '/';
@@ -123,6 +277,21 @@ export default withMermaid(
     description: '面向开发者的开源 Agent 工程基座：项目介绍、开发指南、功能与 API 手册',
     base,
     lastUpdated: true,
+    markdown: {
+      codeTransformers: [inlineCommentCopyTransformer],
+    },
+    async buildEnd(site) {
+      // robots.txt 只有部署到域名根目录才是标准爬虫入口；项目子路径下仅作同内容声明。
+      await writeFile(resolve(site.outDir, 'robots.txt'), [
+        '# Hosted documentation: online reading only; no automated crawling or mirroring requested.',
+        '# AI training and deliberate local export are not permitted by the site usage request.',
+        '# Source code and repository documentation remain licensed under Apache-2.0.',
+        '# Robots directives are voluntary, not access control.',
+        'User-agent: *',
+        `Disallow: ${base}`,
+        '',
+      ].join('\n'), 'utf8');
+    },
     ignoreDeadLinks: [
       // 本机服务地址（localhost:8000/5173/3000 等）是操作示例里的目标地址，不是站内链接
       /^https?:\/\/localhost/,
@@ -136,6 +305,8 @@ export default withMermaid(
       ['meta', { property: 'og:site_name', content: 'LubanAgent' }],
       ['meta', { property: 'og:description', content: '开源 Agent 工程基座：完整源码、模型接入、多 Agent、监控与部署' }],
       ['meta', { name: 'theme-color', content: '#0f766e' }],
+      // noai / noimageai 是非标准使用意愿声明，不能替代鉴权或阻止下载。
+      ['meta', { name: 'robots', content: 'noindex, nofollow, noarchive, noai, noimageai' }],
     ],
     themeConfig: {
       sidebar,
@@ -165,7 +336,7 @@ export default withMermaid(
       returnToTopLabel: '回到顶部',
       sidebarMenuLabel: '目录',
       footer: {
-        message: '基于 Apache-2.0 开源，克隆即用',
+        message: '源码与仓库文档按 Apache-2.0 开源；本站网页供在线查阅',
         copyright: 'LubanAgent Contributors',
       },
       nav: [

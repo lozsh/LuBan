@@ -8,6 +8,7 @@ from starlette.requests import Request
 from lubanagent.api.routes import avatars as avatars_route
 from lubanagent.avatar.manager import MAX_AVATAR_BYTES
 from lubanagent.core import ErrorCode, LubanError
+from lubanagent.persistence import SecurityRepository
 from tests.lubanagent.api.conftest import create_demo_agent, make_client
 
 
@@ -201,3 +202,112 @@ async def test_delete_clears_file_and_definition(client, files_root) -> None:
     again = await client.delete("/v1/agents/cs-bot/avatar")
     assert again.status_code == 404
     assert again.json()["error"]["code"] == "AVATAR_NOT_FOUND"
+
+
+async def test_avatar_display_toggle_retains_asset_and_version_history(
+    client, files_root
+) -> None:
+    created = await create_demo_agent(client, "cs-bot")
+    assert created["show_avatar"] is True
+    uploaded = await client.put(
+        "/v1/agents/cs-bot/avatar", files=[("file", ("m.svg", SVG, "image/svg+xml"))]
+    )
+    assert uploaded.status_code == 200
+    visible = uploaded.json()
+
+    hidden = await client.post(
+        "/v1/agents/cs-bot/versions",
+        json={**visible, "version": 3, "show_avatar": False},
+    )
+    assert hidden.status_code == 201, hidden.text
+    reloaded = (await client.get("/v1/agents/cs-bot")).json()
+    assert reloaded["show_avatar"] is False
+    assert reloaded["avatar"] == "avatar.svg"
+    assert reloaded["instructions"] == created["instructions"]
+    assert (files_root / "cs-bot" / "avatar.svg").read_bytes() == SVG
+    # 关闭是展示设置，不是文件删除或权限开关。
+    fetched = await client.get("/v1/agents/cs-bot/avatar")
+    assert fetched.status_code == 200 and fetched.content == SVG
+
+    enabled = await client.post(
+        "/v1/agents/cs-bot/versions",
+        json={**reloaded, "version": 4, "show_avatar": True},
+    )
+    assert enabled.status_code == 201, enabled.text
+    assert (await client.get("/v1/agents/cs-bot")).json()["show_avatar"] is True
+    for version, expected in [(2, True), (3, False), (4, True)]:
+        snapshot = (await client.get(f"/v1/agents/cs-bot/versions/{version}")).json()
+        assert snapshot["definition"]["show_avatar"] is expected
+        assert snapshot["definition"]["avatar"] == "avatar.svg"
+    assert (files_root / "cs-bot" / "avatar.svg").read_bytes() == SVG
+
+
+async def test_hidden_avatar_upload_and_remove_preserve_display_setting(client) -> None:
+    created = await client.post(
+        "/v1/agents", json={"key": "cs-bot", "name": "CS", "show_avatar": False}
+    )
+    assert created.status_code == 201
+    assert created.json()["show_avatar"] is False
+    for version, filename, data in [(2, "m.svg", SVG), (3, "m.png", PNG_MAGIC)]:
+        uploaded = await client.put(
+            "/v1/agents/cs-bot/avatar",
+            files=[("file", (filename, data, "application/octet-stream"))],
+        )
+        assert uploaded.status_code == 200, uploaded.text
+        assert uploaded.json()["version"] == version
+        assert uploaded.json()["show_avatar"] is False
+        fetched = await client.get("/v1/agents/cs-bot/avatar")
+        assert fetched.status_code == 200 and fetched.content == data
+    removed = await client.delete("/v1/agents/cs-bot/avatar")
+    assert removed.status_code == 200
+    current = (await client.get("/v1/agents/cs-bot")).json()
+    assert current["version"] == 4
+    assert current["avatar"] is None
+    assert current["show_avatar"] is False
+
+
+async def test_avatar_display_setting_does_not_bypass_rbac(db, registry, tmp_path) -> None:
+    password = "viewer-test-password"
+    async with db.session() as session:
+        repo = SecurityRepository(session)
+        await repo.seed()
+        await repo.create_user(
+            username="avatar-viewer", display_name="Viewer", password=password,
+            role_keys=["viewer"],
+        )
+    async with await make_client(
+        db, registry, auth_enabled=True, api_key="bootstrap-test-key",
+        avatar_files_root=str(tmp_path / "avatars"),
+    ) as client:
+        admin = {"Authorization": "Bearer bootstrap-test-key"}
+        created = await client.post(
+            "/v1/agents", headers=admin,
+            json={"key": "cs-bot", "name": "CS", "show_avatar": False},
+        )
+        assert created.status_code == 201
+        uploaded = await client.put(
+            "/v1/agents/cs-bot/avatar", headers=admin,
+            files=[("file", ("m.svg", SVG, "image/svg+xml"))],
+        )
+        assert uploaded.status_code == 200
+        login = await client.post(
+            "/v1/auth/login", json={"username": "avatar-viewer", "password": password}
+        )
+        assert login.status_code == 200
+        viewer = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        definition = (await client.get("/v1/agents/cs-bot", headers=viewer)).json()
+        assert definition["show_avatar"] is False
+        payload = {**definition, "version": 3, "show_avatar": True}
+        assert (await client.post("/v1/agents/cs-bot/versions", json=payload)).status_code == 401
+        denied = await client.post(
+            "/v1/agents/cs-bot/versions", headers=viewer, json=payload
+        )
+        assert denied.status_code == 403
+        assert denied.json()["error"]["code"] == "PERMISSION_DENIED"
+        asset = await client.get("/v1/agents/cs-bot/avatar", headers=viewer)
+        assert asset.status_code == 200 and asset.content == SVG
+        saved = await client.post(
+            "/v1/agents/cs-bot/versions", headers=admin, json=payload
+        )
+        assert saved.status_code == 201
+        assert saved.json()["definition"]["show_avatar"] is True

@@ -53,7 +53,13 @@ class ErrorOut(BaseModel):                # {"error": {code,message,details,retr
 | `/runs/{run_id}/cancel` | POST | runtime.cancel → {"cancelled": bool} | 404 |
 | `/models` | GET | list_models（脱敏） | — |
 | `/models` | PUT | upsert_model（body=ModelDefinition） | 422 |
-| `/brain-mappings` | PUT | set_brain_mapping(env, profile, model_key) | 404 MODEL_NOT_FOUND |
+| `/brain-mappings` | GET | 活动槽位实际环境映射；env 缺省服务端配置 | `config:read` |
+| `/brain-mappings` | PUT | set_brain_mapping(env, profile, model_key)，解析旧 alias 返回当前 key | 404 MODEL_NOT_FOUND / BRAIN_PROFILE_NOT_FOUND；`config:write` |
+| `/brain-profiles` | GET | 活动目录 `{env,items}`，元信息、旧 alias 和引用计数 | `config:read` |
+| `/brain-profiles` | POST | 创建 key/name/description，可选同事务 model_key/env → 201 | 409 BRAIN_PROFILE_CONFLICT / 422 非法字段 / 404 模型不存在；`config:write` |
+| `/brain-profiles/{key}` | PATCH | 编辑 key/name/description 及可选映射，改名留 alias、移全部环境映射，不改历史快照 | 404 / 409 BRAIN_PROFILE_CONFLICT / 422；`config:write` |
+| `/brain-profiles/{key}/references` | GET | 全部可运行 Agent 历史版本主/降级/摘要隐含 cheap 引用，返回 Agent/版本/字段 | 404 BRAIN_PROFILE_NOT_FOUND；`config:read` |
+| `/brain-profiles/{key}` | DELETE | 持锁当前读引用，无使用才留墓碑并删所有环境映射，返回 removed=true | 404 / 409 BRAIN_PROFILE_IN_USE（details 含 Agent/版本/字段，目录/映射不变）；`config:write` |
 | `/traces/{run_id}` | GET | TraceOut（trace + events 列表） | 404 RUN_NOT_FOUND |
 | `/approvals` | GET | ApprovalManager.pending(run_id 过滤) | — |
 | `/approvals/{approval_id}/decide` | POST | decide → {"status": "approved"\|"rejected"} | 404 VALIDATION_ERROR |
